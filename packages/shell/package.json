@@ -1,0 +1,14 @@
+{
+  "name": "@suite/shell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "제품군 공통 Electron 기반 (창 생성, preload 브리지, IPC)",
+  "exports": {
+    "./main": "./src/main.ts",
+    "./preload": "./src/preload.ts",
+    "./bridge": "./src/bridge.ts"
+  },
+  "peerDependencies": {
+    "electron": "*"
+  }
+}

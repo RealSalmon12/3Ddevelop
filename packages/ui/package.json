@@ -1,0 +1,16 @@
+{
+  "name": "@suite/ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "제품군 공통 화면 디자인 (테마, 레이아웃, AI 도우미 패널)",
+  "exports": {
+    ".": "./src/index.ts",
+    "./theme.css": "./src/theme.css"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "dependencies": {
+    "@suite/shell": "*"
+  }
+}
