@@ -1,4 +1,5 @@
-import * as THREE from "three";
+import type { PolyMesh } from "../mesh/PolyMesh";
+import { coneMesh, cubeMesh, cylinderMesh, planeMesh, sphereMesh, torusMesh } from "../mesh/primitives";
 
 export type ShapeKind = "cube" | "sphere" | "cylinder" | "cone" | "torus" | "plane";
 
@@ -11,19 +12,19 @@ export const SHAPES: { kind: ShapeKind; label: string }[] = [
   { kind: "plane", label: "평면" },
 ];
 
-export function createGeometry(kind: ShapeKind): THREE.BufferGeometry {
+export function createShape(kind: ShapeKind): PolyMesh {
   switch (kind) {
     case "cube":
-      return new THREE.BoxGeometry(1, 1, 1);
+      return cubeMesh();
     case "sphere":
-      return new THREE.SphereGeometry(0.5, 32, 16);
+      return sphereMesh();
     case "cylinder":
-      return new THREE.CylinderGeometry(0.5, 0.5, 1, 32);
+      return cylinderMesh();
     case "cone":
-      return new THREE.ConeGeometry(0.5, 1, 32);
+      return coneMesh();
     case "torus":
-      return new THREE.TorusGeometry(0.4, 0.15, 16, 48);
+      return torusMesh();
     case "plane":
-      return new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2);
+      return planeMesh();
   }
 }

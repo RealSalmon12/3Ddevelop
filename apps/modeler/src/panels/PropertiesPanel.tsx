@@ -1,18 +1,50 @@
 import { useEffect, useRef, useState } from "react";
 import type * as THREE from "three";
 import { Panel } from "@suite/ui";
-import type { ModelerScene, ObjectData } from "../scene/ModelerScene";
+import type { EditState, ModelerScene, ObjectData } from "../scene/ModelerScene";
 
 interface PropertiesPanelProps {
   model: ModelerScene;
   item: ObjectData | null;
+  edit: EditState | null;
 }
 
 const AXES = ["X", "Y", "Z"] as const;
 const DEG = 180 / Math.PI;
 
 /** 선택한 오브젝트의 이름, 위치, 회전, 크기, 색을 숫자로 바꾸는 패널 */
-export function PropertiesPanel({ model, item }: PropertiesPanelProps) {
+export function PropertiesPanel({ model, item, edit }: PropertiesPanelProps) {
+  if (edit) {
+    return (
+      <Panel title="고른 점">
+        {edit.center ? (
+          <>
+            <p className="panel-empty">점 {edit.selectedVertexCount}개를 골랐어요. 가운데 위치를 바꾸면 함께 움직여요.</p>
+            <div className="prop-row">
+              <span className="prop-label">가운데</span>
+              <div className="prop-xyz">
+                {AXES.map((axis, i) => (
+                  <NumberField
+                    key={axis}
+                    axis={axis}
+                    value={edit.center![i]}
+                    onCommit={(n) => {
+                      const next = [...edit.center!] as [number, number, number];
+                      next[i] = n;
+                      model.moveEditSelectionTo(next);
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          <p className="panel-empty">아무것도 고르지 않았어요. 점, 선, 면을 클릭해 보세요.</p>
+        )}
+      </Panel>
+    );
+  }
+
   if (!item) {
     return (
       <Panel title="속성">

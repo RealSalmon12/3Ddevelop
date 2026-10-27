@@ -131,6 +131,7 @@ button {
   gap: 4px;
   width: 64px;
   padding: var(--gap) 6px;
+  overflow-y: auto;
   background: var(--bg-panel);
   border-right: 1px solid var(--border);
 }
@@ -151,6 +152,34 @@ button {
 .suite-tool:hover { background: var(--bg-hover); color: var(--text); }
 .suite-tool[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 .suite-tool[aria-pressed="true"] .suite-tool-icon { color: var(--accent); }
+.suite-tool:disabled { opacity: 0.35; cursor: default; background: none; }
+.suite-toolbar-divider {
+  margin: 8px 0 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+/* ---------- 버튼 묶음 (하나만 고르는 스위치) ---------- */
+.suite-segmented {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.suite-segmented button {
+  padding: 5px 12px;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-dim);
+}
+.suite-segmented button:hover { color: var(--text); }
+.suite-segmented button[aria-pressed="true"] { background: var(--accent); color: #fff; }
 
 /* ---------- 패널 ---------- */
 .suite-panel {
