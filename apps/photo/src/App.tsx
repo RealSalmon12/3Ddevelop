@@ -51,12 +51,14 @@ import {
   replaceTarget,
   resampleDoc,
   rotateDoc,
+  type PixelTarget,
 } from "./ops";
 import { applyFilter, clearPixels, fillAll, FILTERS, opaqueBounds, RETOUCH, type FilterKind } from "./paint";
 import { contentAwareFill } from "./inpaint";
 import { readPsd, writePsd } from "./psd";
 import { LayersPanel, PropertiesPanel, setHistogramDoc, Histogram } from "./Panels";
 import { createCanvas, ctx2d, dataUrlToBlob, pixelsAsync, putBlank, putCanvas } from "./pixels";
+import { LiquifyDialog } from "./LiquifyDialog";
 import { flatten, layerMatrix, layerToDocCanvas } from "./render";
 import { featherSelection, growSelection, invertSelection, selectAll, selectFromAlpha, type Selection } from "./selection";
 
@@ -120,6 +122,7 @@ type Dialog =
   | { kind: "canvasSize" }
   | { kind: "export" }
   | { kind: "filter"; filter: FilterKind; orig: PhotoDoc }
+  | { kind: "liquify"; t: PixelTarget; base: HTMLCanvasElement; sel: HTMLCanvasElement | null }
   | null;
 
 export function App() {
@@ -314,6 +317,23 @@ export function App() {
   };
 
   const fill = (color: string) => editPixels((b, s) => fillAll(b, target()?.kind === "mask" ? (color === bg ? "#000" : "#fff") : color, s));
+
+  /** 픽셀 유동화 (Shift+Ctrl+X): 얼굴 윤곽, 눈 크기, 머리 모양을 찰흙처럼 다듬는다 */
+  const startLiquify = async () => {
+    const t = target();
+    if (!t) return;
+    if (t.kind !== "pixels") return notify("사진(픽셀) 레이어를 골라 주세요. 글자나 도형은 먼저 래스터화해요.");
+    const base = await pixelsAsync(t.src);
+    if (!base) return;
+    let sel: HTMLCanvasElement | null = null;
+    if (selection) {
+      sel = createCanvas(base.width, base.height);
+      const g = ctx2d(sel);
+      g.setTransform(t.matrix.inverse());
+      g.drawImage(selection.canvas, 0, 0);
+    }
+    setDialog({ kind: "liquify", t, base, sel });
+  };
 
   /** 내용 인식 채우기: 선택한 곳을 주변 그림으로 자연스럽게 메운다 */
   const contentFill = async () => {
@@ -548,6 +568,10 @@ export function App() {
         e.preventDefault();
         return void contentFill();
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && key === "x") {
+        e.preventDefault();
+        return void startLiquify();
+      }
       if (e.ctrlKey || e.metaKey) {
         const shift = e.shiftKey;
         const alt = e.altKey;
@@ -737,7 +761,10 @@ export function App() {
     },
     {
       label: "필터",
-      items: FILTERS.map((f) => ({ label: `${f.label}…`, onSelect: () => startFilter(f.kind) })),
+      items: [
+        { label: "픽셀 유동화… (얼굴·몸매 다듬기)", shortcut: "Shift+Ctrl+X", onSelect: () => void startLiquify() },
+        ...FILTERS.map((f) => ({ label: `${f.label}…`, onSelect: () => startFilter(f.kind) })),
+      ],
     },
     {
       label: "보기",
@@ -1060,6 +1087,20 @@ export function App() {
         />
       )}
       {dialog?.kind === "export" && <ExportDialog doc={doc} onClose={() => setDialog(null)} onExport={(t, q, s) => void exportImage(t, q, s)} />}
+      {dialog?.kind === "liquify" && (
+        <LiquifyDialog
+          base={dialog.base}
+          sel={dialog.sel}
+          onCancel={() => setDialog(null)}
+          onApply={async (result) => {
+            const t = dialog.t;
+            setDialog(null);
+            const id = await editTarget(t, null, () => result);
+            if (id) history.set((d) => replaceTarget(d, t.layer.id, t.kind, id));
+            notify("유동화를 적용했어요. 마음에 안 들면 Ctrl+Z.");
+          }}
+        />
+      )}
       {dialog?.kind === "filter" && (
         <FilterDialog
           filter={dialog.filter}
