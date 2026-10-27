@@ -788,6 +788,13 @@ export function App() {
       values: { pre: 0, ceiling: -1 },
       run: (s, r, v) => D.limit(D.amplify(s, r, Number(v.pre)), r, Number(v.ceiling)),
     }),
+    declick: (): DialogSpec => ({
+      title: "클릭·팝 지우기",
+      hint: "LP 판의 틱 소리, 입술 쩝 소리, 편집 틈의 딸깍 소리처럼 아주 짧게 튀는 소리를 찾아 앞뒤를 이어 메워요. 미리 듣기로 확인하며 민감도를 올려 보세요.",
+      fields: [{ key: "sens", label: "민감도", min: 1, max: 10, step: 1 }],
+      values: { sens: 5 },
+      run: (s, r, v) => D.declick(s, r, Number(v.sens)).sound,
+    }),
     gate: (): DialogSpec => ({
       title: "노이즈 게이트",
       hint: "말하지 않을 때의 작은 잡음(숨소리, 방 소리)을 줄여요.",
@@ -1027,6 +1034,20 @@ export function App() {
         { label: "노이즈 지문 잡기 (고른 부분)", shortcut: "Shift+P", onSelect: captureNoise },
         { label: "노이즈 줄이기…", disabled: !noiseProfile, onSelect: () => params(FX.reduceNoise()) },
         { label: "노이즈 게이트…", onSelect: () => params(FX.gate()) },
+        { label: "클릭·팝 지우기…", onSelect: () => params(FX.declick()) },
+        {
+          label: "클리핑 복원 (찢어진 소리 되살리기)",
+          onSelect: () => {
+            if (!n) return notify("먼저 소리를 넣어 주세요.");
+            let runs = 0;
+            edit((s, r) => {
+              const out = D.declip(s, r);
+              runs = out.runs;
+              return out.sound;
+            });
+            notify(runs ? `잘린 꼭대기 ${runs}곳을 곡선으로 되살렸어요.` : "잘린(평평해진) 꼭대기를 찾지 못했어요.");
+          },
+        },
       ],
     },
     {

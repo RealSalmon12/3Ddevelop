@@ -272,6 +272,108 @@ export function gate(s: Sound, r: Range, thresholdDb = -45, reduceDb = -40, hold
   return replaceRange(s, r, (p) => p.map((v, i) => v * open[i]));
 }
 
+/* ───────── 복원: 클릭 지우기, 클리핑 복원 ───────── */
+
+/** x[a..b) 를 양쪽 두 점씩(a-2, a-1, b, b+1)을 지나는 3차 곡선으로 메운다 */
+function bridge(x: Float32Array, a: number, b: number) {
+  const ts = [a - 2, a - 1, b, b + 1].map((t) => Math.max(0, Math.min(x.length - 1, t)));
+  const ys = ts.map((t) => x[t]);
+  // 겹친 점(가장자리)은 직선으로
+  if (new Set(ts).size < 4) {
+    const y0 = x[Math.max(0, a - 1)];
+    const y1 = x[Math.min(x.length - 1, b)];
+    for (let i = a; i < b; i++) x[i] = y0 + ((y1 - y0) * (i - a + 1)) / (b - a + 1);
+    return;
+  }
+  for (let i = a; i < b; i++) {
+    let v = 0;
+    for (let j = 0; j < 4; j++) {
+      let l = 1;
+      for (let k = 0; k < 4; k++) if (k !== j) l *= (i - ts[k]) / (ts[j] - ts[k]);
+      v += ys[j] * l;
+    }
+    x[i] = v;
+  }
+}
+
+/**
+ * 클릭·팝 지우기 (오디션의 DeClicker): 바로 옆 샘플과 튀게 다른 아주 짧은 순간(LP 판 잡음, 입술 소리, 편집 틈)을
+ * 찾아 앞뒤를 잇는 곡선으로 메운다. sensitivity 1~10: 클수록 작은 클릭까지 잡는다.
+ */
+export function declick(s: Sound, r: Range, sensitivity = 5) {
+  const k = 22 - sensitivity * 1.6; // 주변 평균의 몇 배를 넘으면 클릭으로 보나
+  const win = Math.max(16, Math.round(s.sampleRate * 0.01));
+  const maxLen = Math.max(4, Math.round(s.sampleRate * 0.002));
+  let fixed = 0;
+  const out = replaceRange(s, r, (p) => {
+    const x = p.slice();
+    const n = x.length;
+    const e = new Float32Array(n);
+    for (let i = 1; i + 1 < n; i++) e[i] = Math.abs(x[i] - (x[i - 1] + x[i + 1]) / 2);
+    // 둘레 평균 (누적 합)
+    const cs = new Float64Array(n + 1);
+    for (let i = 0; i < n; i++) cs[i + 1] = cs[i] + e[i];
+    let i = 2;
+    while (i < n - 2) {
+      const lo = Math.max(0, i - win);
+      const hi = Math.min(n, i + win);
+      const mean = (cs[hi] - cs[lo]) / (hi - lo);
+      if (e[i] > k * mean && e[i] > 0.01) {
+        // 클릭 범위: 문턱을 넘는 곳 + 앞뒤 2샘플
+        let b = i;
+        while (b + 1 < n && b - i < maxLen && e[b + 1] > (k * mean) / 3) b++;
+        const a0 = Math.max(2, i - 2);
+        const b0 = Math.min(n - 2, b + 3);
+        if (b0 - a0 <= maxLen + 4) {
+          bridge(x, a0, b0);
+          fixed++;
+        }
+        i = b0 + 1;
+      } else i++;
+    }
+    return x;
+  });
+  return { sound: out, fixed };
+}
+
+/**
+ * 클리핑 복원 (오디션의 DeClipper): 너무 크게 녹음돼 꼭대기가 잘린(평평해진) 파형을 곡선으로 다시 그린다.
+ * 복원한 꼭대기가 0dB 를 넘지 않게 전체를 그만큼 줄인다.
+ */
+export function declip(s: Sound, r: Range) {
+  let runs = 0;
+  let peakAfter = 0;
+  const repaired = replaceRange(s, r, (p) => {
+    const x = p.slice();
+    let peak = 0;
+    for (const v of x) peak = Math.max(peak, Math.abs(v));
+    if (peak < 0.05) return x;
+    // 잘린 곳은 꼭대기 근처에서 같은 값이 세 샘플 넘게 이어진다 (자연스러운 파형의 봉우리는 둥글다)
+    const th = peak * 0.95;
+    const flat = 1 / 65536;
+    let i = 0;
+    while (i < x.length) {
+      if (Math.abs(x[i]) >= th) {
+        let b = i;
+        while (b + 1 < x.length && Math.abs(x[b + 1] - x[i]) <= flat) b++;
+        if (b - i >= 2 && i >= 2 && b + 2 < x.length) {
+          const sign = Math.sign(x[i]);
+          bridge(x, i, b + 1);
+          // 곡선이 원래보다 작게 나오면 원래 값을 둔다 (잘린 꼭대기는 더 커야 한다)
+          for (let j = i; j <= b; j++) if (Math.abs(x[j]) < th) x[j] = sign * th;
+          runs++;
+        }
+        i = b + 1;
+      } else i++;
+    }
+    for (const v of x) peakAfter = Math.max(peakAfter, Math.abs(v));
+    return x;
+  });
+  if (peakAfter <= 1) return { sound: repaired, runs };
+  const g = 0.98 / peakAfter;
+  return { sound: replaceRange(repaired, r, (p) => p.map((v) => v * g)), runs };
+}
+
 /* ───────── 소음 제거 (스펙트럼 빼기) ───────── */
 
 const NR_SIZE = 2048;
