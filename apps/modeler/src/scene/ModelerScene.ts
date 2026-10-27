@@ -333,18 +333,29 @@ export class ModelerScene {
 
   /** Tab: 선택한 오브젝트의 점, 선, 면을 고치는 모드로 들어가거나 나온다. */
   toggleEdit() {
-    if (this.editingId) this.exitEdit();
-    else this.enterEdit();
+    if (!this.editingId) return this.enterEdit();
+    this.exitEdit();
+    return "ok";
   }
 
-  enterEdit() {
-    if (!this.selectedId || this.editingId) return;
+  /**
+   * 편집 모드로 들어간다. 못 들어가면 그 이유를 돌려준다.
+   * 아무것도 안 골랐는데 고칠 수 있는 오브젝트가 하나뿐이면 그것을 골라서 들어간다.
+   */
+  enterEdit(): "ok" | "nothing-selected" | "effect" {
+    if (this.editingId) return "ok";
+    if (!this.selectedId) {
+      const editable = [...this.meshes.values()].filter((m) => m.userData.kind !== "effect");
+      if (editable.length !== 1) return "nothing-selected";
+      this.selectedId = editable[0].userData.id;
+    }
     // 이펙트는 모양을 고칠 것이 없다.
-    if (this.meshes.get(this.selectedId)?.userData.kind === "effect") return;
+    if (this.meshes.get(this.selectedId!)?.userData.kind === "effect") return "effect";
     this.editingId = this.selectedId;
     this.editSelection = emptySelection(this.editSelection.mode);
     this.editVersion++;
     this.refresh();
+    return "ok";
   }
 
   exitEdit() {
