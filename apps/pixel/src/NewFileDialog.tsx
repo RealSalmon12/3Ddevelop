@@ -1,14 +1,18 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export const SIZES = [
-  { size: 16, label: "16 × 16", hint: "작은 아이콘, 아이템. 처음이라면 여기서 시작해요" },
-  { size: 32, label: "32 × 32", hint: "캐릭터, 몬스터, 조금 더 자세한 아이템" },
-  { size: 64, label: "64 × 64", hint: "자세한 그림, 게임 바닥·벽 텍스처" },
-  { size: 128, label: "128 × 128", hint: "로블록스 데칼, 큰 텍스처, 티셔츠 그림" },
+  { w: 16, h: 16, label: "16 × 16", hint: "작은 아이콘, 아이템. 처음이라면 여기서 시작해요" },
+  { w: 32, h: 32, label: "32 × 32", hint: "캐릭터, 몬스터, 조금 더 자세한 아이템" },
+  { w: 64, h: 64, label: "64 × 64", hint: "자세한 그림, 게임 바닥·벽 텍스처" },
+  { w: 128, h: 128, label: "128 × 128", hint: "로블록스 데칼, 큰 텍스처, 티셔츠 그림" },
+  { w: 585, h: 559, label: "로블록스 클래식 셔츠", hint: "옷 템플릿 크기 (585 × 559)" },
+  { w: 128, h: 128, label: "로블록스 티셔츠", hint: "정사각형 데칼 (128 × 128)" },
 ];
 
 /** 새 그림 크기 고르기 */
-export function NewFileDialog({ onPick, onClose }: { onPick: (size: number) => void; onClose: () => void }) {
+export function NewFileDialog({ onPick, onClose }: { onPick: (w: number, h: number) => void; onClose: () => void }) {
+  const [w, setW] = useState(48);
+  const [h, setH] = useState(48);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -22,12 +26,21 @@ export function NewFileDialog({ onPick, onClose }: { onPick: (size: number) => v
         <p>칸이 적을수록 그리기 쉬워요. 나중에 내보낼 때 크게 키울 수 있어요.</p>
         <div className="size-grid">
           {SIZES.map((s) => (
-            <button key={s.size} className="size-card" onClick={() => onPick(s.size)}>
-              <span className="size-demo" style={{ ["--cells" as string]: Math.min(s.size, 16) }} />
+            <button key={s.label} className="size-card" onClick={() => onPick(s.w, s.h)}>
+              <span className="size-demo" style={{ ["--cells" as string]: Math.min(s.w, 16) }} />
               <b>{s.label}</b>
               <span>{s.hint}</span>
             </button>
           ))}
+        </div>
+        <div className="custom-size">
+          <span>직접 정하기</span>
+          <input type="number" min={1} max={1024} value={w} onChange={(e) => setW(Number(e.target.value))} aria-label="가로" />
+          ×
+          <input type="number" min={1} max={1024} value={h} onChange={(e) => setH(Number(e.target.value))} aria-label="세로" />
+          <button className="suite-button" disabled={!(w >= 1 && h >= 1 && w <= 1024 && h <= 1024)} onClick={() => onPick(Math.round(w), Math.round(h))}>
+            만들기
+          </button>
         </div>
         <div className="dialog-actions">
           <button className="suite-ai-link" onClick={onClose}>

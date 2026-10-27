@@ -1,29 +1,125 @@
+import { useRef } from "react";
 import { Panel } from "@suite/ui";
-import { DEFAULT_PALETTE } from "../doc/color";
+import type { PixelDoc } from "../doc/PixelDoc";
+import { PALETTES } from "../doc/palettes";
+import { usedColors } from "../doc/raster";
 
 interface Props {
+  doc: PixelDoc;
+  palette: string[];
   color: string;
+  secondary: string;
   recent: string[];
   onChange: (hex: string) => void;
+  onSecondary: (hex: string) => void;
+  onLoad: () => void;
+  onSave: () => void;
+  notify: (m: string) => void;
 }
 
-/** 지금 색, 직접 고르기, 기본 32색, 최근 쓴 색 */
-export function ColorPanel({ color, recent, onChange }: Props) {
+/** 전경색·배경색, 그림의 팔레트 (순서가 명암 붓의 밝기 순서), 최근 쓴 색 */
+export function ColorPanel({ doc, palette, color, secondary, recent, onChange, onSecondary, onLoad, onSave, notify }: Props) {
+  const dragFrom = useRef<number | null>(null);
   return (
-    <Panel title="색">
+    <Panel title="색과 팔레트" className="color-panel">
       <div className="color-current">
-        <label className="color-big" style={{ background: color }} title="눌러서 아무 색이나 고르기">
-          <input type="color" value={color} onChange={(e) => onChange(e.target.value)} />
-        </label>
+        <div className="color-pair">
+          <label className="color-big fg" style={{ background: color }} title="전경색 (칠하는 색) · 눌러서 아무 색이나">
+            <input type="color" value={color} onChange={(e) => onChange(e.target.value)} />
+          </label>
+          <label className="color-big bg" style={{ background: secondary }} title="배경색 · X 로 바꾸기">
+            <input type="color" value={secondary} onChange={(e) => onSecondary(e.target.value)} />
+          </label>
+        </div>
         <div>
           <div className="color-hex">{color.toUpperCase()}</div>
-          <div className="color-tip">왼쪽 네모를 누르면 아무 색이나 고를 수 있어요.</div>
+          <div className="color-tip">X: 전경색↔배경색 · 팔레트 칸 오른쪽 클릭: 배경색으로</div>
         </div>
       </div>
-      <div className="swatches" role="group" aria-label="기본 색">
-        {DEFAULT_PALETTE.map((c) => (
-          <button key={c} className="swatch" style={{ background: c }} aria-pressed={c === color} title={c} onClick={() => onChange(c)} />
+      <div className="palette-row">
+        <select
+          value=""
+          onChange={(e) => {
+            const p = PALETTES.find((x) => x.name === e.target.value);
+            if (p) {
+              doc.setPalette(p.colors);
+              notify(`‘${p.name}’ 팔레트로 바꿨어요 (${p.colors.length}색).`);
+            }
+          }}
+        >
+          <option value="">팔레트 바꾸기…</option>
+          {PALETTES.map((p) => (
+            <option key={p.name}>{p.name}</option>
+          ))}
+        </select>
+        <button
+          className="mini"
+          title="그림에 쓰인 색으로 팔레트 만들기"
+          onClick={() => {
+            const cols = usedColors(doc.layers.flatMap((l) => l.cels));
+            if (!cols.length) return notify("아직 칠한 색이 없어요.");
+            doc.setPalette(cols);
+            notify(`그림에서 ${cols.length}색을 뽑았어요.`);
+          }}
+        >
+          그림에서
+        </button>
+      </div>
+      <div className="swatches" role="group" aria-label="팔레트">
+        {palette.map((c, i) => (
+          <button
+            key={`${c}-${i}`}
+            className="swatch"
+            style={{ background: c }}
+            aria-pressed={c === color}
+            title={`${i + 1}. ${c} · 끌어서 순서 바꾸기 · Alt+클릭: 빼기`}
+            draggable
+            onDragStart={() => (dragFrom.current = i)}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={() => {
+              const from = dragFrom.current;
+              dragFrom.current = null;
+              if (from === null || from === i) return;
+              const next = palette.slice();
+              const [m] = next.splice(from, 1);
+              next.splice(i, 0, m);
+              doc.setPalette(next);
+            }}
+            onClick={(e) => (e.altKey ? doc.setPalette(palette.filter((_, j) => j !== i)) : onChange(c))}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              onSecondary(c);
+            }}
+          />
         ))}
+        <button
+          className="swatch add"
+          title="지금 색을 팔레트에 넣기"
+          onClick={() => (palette.includes(color) ? notify("이미 팔레트에 있어요.") : doc.setPalette([...palette, color]))}
+        >
+          ＋
+        </button>
+      </div>
+      <div className="palette-row">
+        <button className="mini" onClick={onLoad} title=".hex 나 .gpl 팔레트 파일 불러오기 (Lospec 에서 받은 것)">
+          불러오기
+        </button>
+        <button className="mini" onClick={onSave} title=".hex 로 저장">
+          저장
+        </button>
+        <button
+          className="mini"
+          title="밝기 순서로 정렬 (명암 붓이 잘 맞게)"
+          onClick={() => {
+            const lum = (h: string) => {
+              const n = parseInt(h.slice(1), 16);
+              return 0.3 * (n >> 16) + 0.59 * ((n >> 8) & 255) + 0.11 * (n & 255);
+            };
+            doc.setPalette([...palette].sort((a, b) => lum(a) - lum(b)));
+          }}
+        >
+          밝기순
+        </button>
       </div>
       {recent.length > 0 && (
         <>

@@ -1,7 +1,20 @@
 import { useEffect, useRef } from "react";
 import { hexToRgba, rgbaToHex, TRANSPARENT, type RGBA } from "../doc/color";
 import type { PixelDoc } from "../doc/PixelDoc";
-import { ellipsePoints, floodFill, getPixel, linePoints, rectPoints, stamp } from "../doc/raster";
+import {
+  clearMasked,
+  combineMask,
+  cutOut,
+  ellipsePoints,
+  getPixel,
+  linePoints,
+  rectMask,
+  rectPoints,
+  shiftMask,
+  stampRaster,
+  wandMask,
+  type Raster,
+} from "../doc/raster";
 import { isTyping, type ToolOptions } from "./tools";
 
 export interface CanvasController {
@@ -22,11 +35,16 @@ interface Props {
   notify: (message: string) => void;
 }
 
+type Point = [number, number];
+type SelectMode = "replace" | "add" | "subtract";
+
 type Drag =
   | { kind: "pan"; startX: number; startY: number; panX: number; panY: number }
-  | { kind: "paint"; color: RGBA; last: [number, number]; changed: boolean }
-  | { kind: "shape"; start: [number, number]; base: Uint8ClampedArray }
-  | { kind: "move"; start: [number, number]; base: Uint8ClampedArray; moved: boolean };
+  | { kind: "paint"; color: RGBA; last: Point; trail: Point[]; base: Uint8ClampedArray; done: Set<number> }
+  | { kind: "shade"; dir: 1 | -1; last: Point; done: Set<number> }
+  | { kind: "shape"; start: Point; base: Uint8ClampedArray; erase: boolean; to: Point }
+  | { kind: "select"; start: Point; to: Point; mode: SelectMode }
+  | { kind: "move"; start: Point; base: Uint8ClampedArray; float: Raster | null; mask: Uint8Array | null; moved: boolean };
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 64;
@@ -45,16 +63,32 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
     const ctx = canvas.getContext("2d")!;
     const image = document.createElement("canvas");
     const imageCtx = image.getContext("2d")!;
+    const onionPrev = document.createElement("canvas");
+    const onionNext = document.createElement("canvas");
     const checker = document.createElement("canvas");
 
     let zoom = 16;
     let panX = 0;
     let panY = 0;
-    let hover: [number, number] | null = null;
+    let hover: Point | null = null;
     let drag: Drag | null = null;
     let space = false;
     let frame = 0;
     let imageVersion = -1;
+    let lastPaint: Point | null = null;
+    let ants = 0;
+
+    /** 앞뒤 프레임을 색을 입혀 흐리게 */
+    const paintOnion = (target: HTMLCanvasElement, f: number, tint: string) => {
+      target.width = doc.width;
+      target.height = doc.height;
+      const g = target.getContext("2d")!;
+      g.putImageData(new ImageData(doc.composite(f), doc.width, doc.height), 0, 0);
+      g.globalCompositeOperation = "source-atop";
+      g.fillStyle = tint;
+      g.fillRect(0, 0, doc.width, doc.height);
+      g.globalCompositeOperation = "source-over";
+    };
 
     const draw = () => {
       frame = 0;
@@ -66,10 +100,15 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
         canvas.height = Math.round(h * dpr);
       }
       const snap = doc.getSnapshot();
+      const o = opts.current;
       if (imageVersion !== snap.version || image.width !== doc.width || image.height !== doc.height) {
         image.width = doc.width;
         image.height = doc.height;
         imageCtx.putImageData(new ImageData(doc.composite(), doc.width, doc.height), 0, 0);
+        if (o.onion) {
+          if (doc.frame > 0) paintOnion(onionPrev, doc.frame - 1, "rgba(255,80,90,0.55)");
+          if (doc.frame < doc.frames.length - 1) paintOnion(onionNext, doc.frame + 1, "rgba(80,160,255,0.55)");
+        }
         imageVersion = snap.version;
       }
 
@@ -83,15 +122,32 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
       const ch = Math.ceil(doc.height * perCell);
       if (checker.width !== cw || checker.height !== ch) paintChecker(checker, cw, ch);
       ctx.imageSmoothingEnabled = false;
+
+      // 타일 모드: 둘레 8칸에 같은 그림을 흐리게
+      if (o.tile) {
+        ctx.globalAlpha = 0.45;
+        for (let ty = -1; ty <= 1; ty++)
+          for (let tx = -1; tx <= 1; tx++) {
+            if (!tx && !ty) continue;
+            ctx.drawImage(image, panX + tx * dw, panY + ty * dh, dw, dh);
+          }
+        ctx.globalAlpha = 1;
+      }
+
       ctx.save();
       ctx.beginPath();
       ctx.rect(panX, panY, dw, dh);
       ctx.clip();
       ctx.drawImage(checker, panX, panY, (cw / perCell) * zoom, (ch / perCell) * zoom);
       ctx.restore();
+      if (o.onion) {
+        ctx.globalAlpha = 0.35;
+        if (doc.frame > 0) ctx.drawImage(onionPrev, panX, panY, dw, dh);
+        if (doc.frame < doc.frames.length - 1) ctx.drawImage(onionNext, panX, panY, dw, dh);
+        ctx.globalAlpha = 1;
+      }
       ctx.drawImage(image, panX, panY, dw, dh);
 
-      const o = opts.current;
       if (o.grid && zoom >= 6) {
         ctx.beginPath();
         for (let x = 1; x < doc.width; x++) {
@@ -119,32 +175,50 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
         ctx.stroke();
       }
 
-      if (o.mirror) {
+      ctx.setLineDash([6, 5]);
+      ctx.strokeStyle = "#b39dff";
+      ctx.lineWidth = 1.5;
+      if (o.symmetry === "x" || o.symmetry === "both") {
         const cx = Math.round(panX + dw / 2) + 0.5;
-        ctx.setLineDash([6, 5]);
         ctx.beginPath();
         ctx.moveTo(cx, panY - 12);
         ctx.lineTo(cx, panY + dh + 12);
-        ctx.strokeStyle = "#b39dff";
-        ctx.lineWidth = 1.5;
         ctx.stroke();
-        ctx.setLineDash([]);
       }
+      if (o.symmetry === "y" || o.symmetry === "both") {
+        const cy = Math.round(panY + dh / 2) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(panX - 12, cy);
+        ctx.lineTo(panX + dw + 12, cy);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
 
       ctx.strokeStyle = "#323a52";
       ctx.lineWidth = 1;
       ctx.strokeRect(Math.round(panX) - 0.5, Math.round(panY) - 0.5, dw + 1, dh + 1);
 
+      // 고른 영역: 개미 행렬
+      const mask = drag?.kind === "move" && drag.mask ? drag.mask : doc.selection;
+      if (mask) drawAnts(mask);
+      if (drag?.kind === "select") {
+        const [x0, y0] = drag.start;
+        const [x1, y1] = drag.to;
+        ctx.setLineDash([4, 4]);
+        ctx.lineDashOffset = -ants;
+        ctx.strokeStyle = "#fff";
+        ctx.strokeRect(panX + Math.min(x0, x1) * zoom + 0.5, panY + Math.min(y0, y1) * zoom + 0.5, (Math.abs(x1 - x0) + 1) * zoom - 1, (Math.abs(y1 - y0) + 1) * zoom - 1);
+        ctx.setLineDash([]);
+      }
+
       // 마우스가 있는 칸 (붓 크기만큼)
-      if (hover && !drag && ["pencil", "eraser", "line", "rect", "ellipse"].includes(o.tool)) {
-        const size = o.tool === "rect" || o.tool === "ellipse" ? 1 : o.size;
+      if (hover && !drag && ["pencil", "eraser", "line", "rect", "ellipse", "shade"].includes(o.tool)) {
+        const size = o.tool === "rect" || o.tool === "ellipse" || o.tool === "shade" ? 1 : o.size;
         const start = -Math.floor((size - 1) / 2);
-        const marks = [hover[0]];
-        if (o.mirror) marks.push(doc.width - 1 - hover[0]);
-        for (const mx of marks) {
+        for (const [mx, my] of symmetric([hover])) {
           const x = panX + (mx + start) * zoom;
-          const y = panY + (hover[1] + start) * zoom;
-          if (o.tool !== "eraser") {
+          const y = panY + (my + start) * zoom;
+          if (o.tool === "pencil" || o.tool === "line" || o.tool === "rect" || o.tool === "ellipse") {
             ctx.fillStyle = o.color + "99";
             ctx.fillRect(x, y, size * zoom, size * zoom);
           }
@@ -155,9 +229,44 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
       }
     };
 
+    /** 고른 칸의 테두리만 점선으로 */
+    const drawAnts = (mask: Uint8Array) => {
+      const W = doc.width;
+      const H = doc.height;
+      const at = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H && mask[y * W + x] === 1;
+      ctx.beginPath();
+      for (let y = 0; y < H; y++)
+        for (let x = 0; x < W; x++) {
+          if (!at(x, y)) continue;
+          const px = Math.round(panX + x * zoom) + 0.5;
+          const py = Math.round(panY + y * zoom) + 0.5;
+          const px2 = Math.round(panX + (x + 1) * zoom) + 0.5;
+          const py2 = Math.round(panY + (y + 1) * zoom) + 0.5;
+          if (!at(x, y - 1)) (ctx.moveTo(px, py), ctx.lineTo(px2, py));
+          if (!at(x, y + 1)) (ctx.moveTo(px, py2), ctx.lineTo(px2, py2));
+          if (!at(x - 1, y)) (ctx.moveTo(px, py), ctx.lineTo(px, py2));
+          if (!at(x + 1, y)) (ctx.moveTo(px2, py), ctx.lineTo(px2, py2));
+        }
+      ctx.lineWidth = 1;
+      ctx.setLineDash([]);
+      ctx.strokeStyle = "#000";
+      ctx.stroke();
+      ctx.setLineDash([4, 4]);
+      ctx.lineDashOffset = -ants;
+      ctx.strokeStyle = "#fff";
+      ctx.stroke();
+      ctx.setLineDash([]);
+    };
+
     const redraw = () => {
       if (!frame) frame = requestAnimationFrame(draw);
     };
+    // 개미 행렬 움직이기
+    const antsTimer = window.setInterval(() => {
+      if (!doc.selection && drag?.kind !== "select") return;
+      ants = (ants + 1) % 8;
+      redraw();
+    }, 120);
 
     const fit = () => {
       const w = canvas.clientWidth;
@@ -185,21 +294,44 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
       zoomBy: (factor) => zoomAt(factor, canvas.clientWidth / 2, canvas.clientHeight / 2),
     });
 
-    const cellAt = (e: PointerEvent | WheelEvent): [number, number] => {
+    const cellAt = (e: PointerEvent | WheelEvent): Point => {
       const rect = canvas.getBoundingClientRect();
       return [Math.floor((e.clientX - rect.left - panX) / zoom), Math.floor((e.clientY - rect.top - panY) / zoom)];
     };
 
-    /** 좌우 대칭이 켜져 있으면 반대편 칸도 함께 */
-    const withMirror = (points: [number, number][]) =>
-      opts.current.mirror ? [...points, ...points.map(([x, y]) => [doc.width - 1 - x, y] as [number, number])] : points;
-
-    const paintLine = (from: [number, number], to: [number, number], color: RGBA) => {
-      const raster = doc.activeLayer.raster;
-      for (const [x, y] of withMirror(linePoints(from[0], from[1], to[0], to[1]))) stamp(raster, x, y, opts.current.size, color);
+    /** 대칭이 켜져 있으면 반대편 칸도 함께 */
+    const symmetric = (points: Point[]): Point[] => {
+      const s = opts.current.symmetry;
+      const out = [...points];
+      if (s === "x" || s === "both") out.push(...points.map(([x, y]) => [doc.width - 1 - x, y] as Point));
+      if (s === "y" || s === "both") out.push(...out.map(([x, y]) => [x, doc.height - 1 - y] as Point));
+      return out;
     };
 
-    const pickAt = ([x, y]: [number, number]) => {
+    /** 칸 하나 칠하기: 타일 모드면 감싸고, 고른 영역 밖이나 디더링 빈칸은 건너뛴다 */
+    const put = (r: Raster, x: number, y: number, c: RGBA) => {
+      const o = opts.current;
+      if (o.tile) {
+        x = ((x % r.width) + r.width) % r.width;
+        y = ((y % r.height) + r.height) % r.height;
+      }
+      if (x < 0 || y < 0 || x >= r.width || y >= r.height) return;
+      if (doc.selection && !doc.selection[y * r.width + x]) return;
+      if (o.dither && (x + y) % 2) return;
+      r.data.set(c, (y * r.width + x) * 4);
+    };
+
+    const stampAt = (r: Raster, x: number, y: number, size: number, c: RGBA) => {
+      const start = -Math.floor((size - 1) / 2);
+      for (let dy = 0; dy < size; dy++) for (let dx = 0; dx < size; dx++) put(r, x + start + dx, y + start + dy, c);
+    };
+
+    const paintPoints = (points: Point[], color: RGBA, size = opts.current.size) => {
+      const raster = doc.cel;
+      for (const [x, y] of symmetric(points)) stampAt(raster, x, y, size, color);
+    };
+
+    const pickAt = ([x, y]: Point) => {
       if (x < 0 || y < 0 || x >= doc.width || y >= doc.height) return;
       const data = doc.composite();
       const i = (y * doc.width + x) * 4;
@@ -207,10 +339,63 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
       callbacks.current.onPickColor(rgbaToHex([data[i], data[i + 1], data[i + 2], 255]));
     };
 
-    const layerHidden = () => {
+    const cantPaint = () => {
+      if (doc.activeLayer.locked) {
+        callbacks.current.notify("지금 레이어가 잠겨 있어요. 타임라인에서 🔒 를 눌러 풀어 주세요.");
+        return true;
+      }
       if (doc.activeLayer.visible) return false;
-      callbacks.current.notify("지금 레이어가 숨겨져 있어요. 레이어 목록에서 눈 모양을 눌러 보이게 해 주세요.");
+      callbacks.current.notify("지금 레이어가 숨겨져 있어요. 타임라인에서 눈 모양을 눌러 보이게 해 주세요.");
       return true;
+    };
+
+    /** Shift 를 누르면 45도 단위 직선, 정사각형, 정원 */
+    const constrain = (start: Point, to: Point, shift: boolean, tool: string): Point => {
+      if (!shift) return to;
+      const dx = to[0] - start[0];
+      const dy = to[1] - start[1];
+      if (tool === "line") {
+        const ang = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+        const len = Math.max(Math.abs(dx), Math.abs(dy));
+        return [start[0] + Math.round(Math.cos(ang) * len), start[1] + Math.round(Math.sin(ang) * len)];
+      }
+      const m = Math.max(Math.abs(dx), Math.abs(dy));
+      return [start[0] + Math.sign(dx || 1) * m, start[1] + Math.sign(dy || 1) * m];
+    };
+
+    /** 연필 픽셀 퍼펙트: ㄱ자로 꺾인 가운데 칸을 되돌린다 */
+    const perfect = (d: Extract<Drag, { kind: "paint" }>) => {
+      const t = d.trail;
+      while (t.length >= 3) {
+        const [a, b, c] = t.slice(-3);
+        const corner = Math.abs(a[0] - c[0]) === 1 && Math.abs(a[1] - c[1]) === 1 && (b[0] === a[0] || b[1] === a[1]);
+        if (!corner) break;
+        // 대칭 칸까지 되돌린다
+        const raster = doc.cel;
+        for (const [x, y] of symmetric([b])) {
+          if (x < 0 || y < 0 || x >= raster.width || y >= raster.height) continue;
+          const i = (y * raster.width + x) * 4;
+          raster.data.set(d.base.subarray(i, i + 4), i);
+        }
+        t.splice(t.length - 2, 1);
+      }
+    };
+
+    const shadeAt = (d: Extract<Drag, { kind: "shade" }>, pts: Point[]) => {
+      const raster = doc.cel;
+      const pal = doc.palette;
+      for (const [x, y] of symmetric(pts)) {
+        if (x < 0 || y < 0 || x >= raster.width || y >= raster.height) continue;
+        const key = y * raster.width + x;
+        if (d.done.has(key)) continue;
+        d.done.add(key);
+        const p = getPixel(raster, x, y);
+        if (!p[3]) continue;
+        const idx = pal.indexOf(rgbaToHex(p));
+        const next = pal[idx + d.dir];
+        if (idx < 0 || !next) continue;
+        put(raster, x, y, hexToRgba(next));
+      }
     };
 
     const onPointerDown = (e: PointerEvent) => {
@@ -223,54 +408,78 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
       }
       if (e.button !== 0 && e.button !== 2) return;
       const cell = cellAt(e);
-      if (o.tool === "picker" || (e.button === 0 && e.altKey)) return pickAt(cell);
-      if (layerHidden()) return;
+      if (o.tool === "picker" || (e.button === 0 && e.altKey && o.tool !== "select" && o.tool !== "wand")) return pickAt(cell);
+
+      if (o.tool === "select") {
+        const mode: SelectMode = e.shiftKey ? "add" : e.altKey ? "subtract" : "replace";
+        drag = { kind: "select", start: cell, to: cell, mode };
+        redraw();
+        return;
+      }
+      if (o.tool === "wand") {
+        const mode: SelectMode = e.shiftKey ? "add" : e.altKey ? "subtract" : "replace";
+        doc.setSelection(combineMask(doc.selection, wandMask(doc.cel, cell[0], cell[1], o.contiguous), mode));
+        return;
+      }
+      if (cantPaint()) return;
 
       const erase = o.tool === "eraser" || (e.button === 2 && o.tool === "pencil");
       if (o.tool === "pencil" || o.tool === "eraser") {
         doc.begin();
-        drag = { kind: "paint", color: erase ? TRANSPARENT : hexToRgba(o.color), last: cell, changed: true };
-        paintLine(cell, cell, drag.color);
+        const color = erase ? TRANSPARENT : hexToRgba(o.color);
+        const from: Point = e.shiftKey && lastPaint ? lastPaint : cell;
+        drag = { kind: "paint", color, last: cell, trail: [cell], base: doc.cel.data.slice(), done: new Set() };
+        paintPoints(linePoints(from[0], from[1], cell[0], cell[1]), color);
+        lastPaint = cell;
+        doc.preview();
+      } else if (o.tool === "shade") {
+        doc.begin();
+        drag = { kind: "shade", dir: e.button === 2 ? -1 : 1, last: cell, done: new Set() };
+        shadeAt(drag, [cell]);
         doc.preview();
       } else if (o.tool === "fill") {
         const color = e.button === 2 ? TRANSPARENT : hexToRgba(o.color);
-        const raster = doc.activeLayer.raster;
+        const raster = doc.cel;
         const changed = doc.change(() => {
-          const targets = withMirror([cell]);
-          // 대칭 칸을 칠하기 전에 원래 색을 기억해 둬야 양쪽이 똑같이 칠해진다.
-          const before = targets.map(([x, y]) => x >= 0 && y >= 0 && x < doc.width && y < doc.height && getPixel(raster, x, y));
           let any = false;
-          targets.forEach(([x, y], i) => {
-            if (before[i]) any = floodFill(raster, x, y, color) || any;
-          });
+          for (const [x, y] of symmetric([cell])) {
+            if (x < 0 || y < 0 || x >= doc.width || y >= doc.height) continue;
+            const region = wandMask(raster, x, y, o.contiguous);
+            const before = raster.data.slice();
+            region.forEach((v, i) => v && put(raster, i % raster.width, Math.floor(i / raster.width), color));
+            any = any || raster.data.some((v, i) => v !== before[i]);
+          }
           return any;
         });
         if (changed && e.button === 0) callbacks.current.onUsedColor(o.color);
       } else if (o.tool === "line" || o.tool === "rect" || o.tool === "ellipse") {
         doc.begin();
-        drag = { kind: "shape", start: cell, base: doc.activeLayer.raster.data.slice() };
-        drawShape(cell, e.button === 2);
+        drag = { kind: "shape", start: cell, base: doc.cel.data.slice(), erase: e.button === 2, to: cell };
+        drawShape(cell, false);
       } else if (o.tool === "move") {
         doc.begin();
-        drag = { kind: "move", start: cell, base: doc.activeLayer.raster.data.slice(), moved: false };
+        const mask = doc.selection;
+        let float: Raster | null = null;
+        if (mask) {
+          float = cutOut(doc.cel, mask);
+          clearMasked(doc.cel, mask);
+        }
+        drag = { kind: "move", start: cell, base: doc.cel.data.slice(), float, mask, moved: false };
       }
     };
 
-    let shapeErase = false;
-    const drawShape = (to: [number, number], erase = shapeErase) => {
+    const drawShape = (to: Point, shift: boolean) => {
       if (drag?.kind !== "shape") return;
-      shapeErase = erase;
       const o = opts.current;
-      const raster = doc.activeLayer.raster;
+      const raster = doc.cel;
       raster.data.set(drag.base);
-      const color = erase ? TRANSPARENT : hexToRgba(o.color);
+      const color = drag.erase ? TRANSPARENT : hexToRgba(o.color);
+      const end = constrain(drag.start, to, shift, o.tool);
+      drag.to = end;
       const [x0, y0] = drag.start;
-      const [x1, y1] = to;
-      if (o.tool === "line") paintLine(drag.start, to, color);
-      else {
-        const points = o.tool === "rect" ? rectPoints(x0, y0, x1, y1, o.filled) : ellipsePoints(x0, y0, x1, y1, o.filled);
-        for (const [x, y] of withMirror(points)) stamp(raster, x, y, 1, color);
-      }
+      const [x1, y1] = end;
+      if (o.tool === "line") paintPoints(linePoints(x0, y0, x1, y1), color);
+      else paintPoints(o.tool === "rect" ? rectPoints(x0, y0, x1, y1, o.filled) : ellipsePoints(x0, y0, x1, y1, o.filled), color, 1);
       doc.preview();
     };
 
@@ -290,25 +499,49 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
         redraw();
       } else if (drag.kind === "paint") {
         if (cell[0] === drag.last[0] && cell[1] === drag.last[1]) return;
-        paintLine(drag.last, cell, drag.color);
+        const pts = linePoints(drag.last[0], drag.last[1], cell[0], cell[1]).slice(1);
+        for (const p of pts) {
+          paintPoints([p], drag.color);
+          drag.trail.push(p);
+          if (opts.current.pixelPerfect && opts.current.size === 1) perfect(drag);
+        }
+        drag.last = cell;
+        lastPaint = cell;
+        doc.preview();
+      } else if (drag.kind === "shade") {
+        if (cell[0] === drag.last[0] && cell[1] === drag.last[1]) return;
+        shadeAt(drag, linePoints(drag.last[0], drag.last[1], cell[0], cell[1]));
         drag.last = cell;
         doc.preview();
       } else if (drag.kind === "shape") {
-        drawShape(cell);
+        drawShape(cell, e.shiftKey);
+      } else if (drag.kind === "select") {
+        drag.to = [Math.max(0, Math.min(doc.width - 1, cell[0])), Math.max(0, Math.min(doc.height - 1, cell[1]))];
+        redraw();
       } else if (drag.kind === "move") {
         const dx = cell[0] - drag.start[0];
         const dy = cell[1] - drag.start[1];
-        const data = doc.activeLayer.raster.data;
-        data.fill(0);
-        const w = doc.width;
-        for (let y = 0; y < doc.height; y++)
-          for (let x = 0; x < w; x++) {
-            const sx = x - dx;
-            const sy = y - dy;
-            if (sx < 0 || sy < 0 || sx >= w || sy >= doc.height) continue;
-            const from = (sy * w + sx) * 4;
-            data.set(drag.base.subarray(from, from + 4), (y * w + x) * 4);
-          }
+        const data = doc.cel.data;
+        if (drag.float) {
+          data.set(drag.base);
+          stampRaster(doc.cel, drag.float, dx, dy);
+          if (drag.mask) doc.selection = shiftMask(drag.mask, doc.width, doc.height, dx, dy);
+        } else {
+          data.fill(0);
+          const w = doc.width;
+          for (let y = 0; y < doc.height; y++)
+            for (let x = 0; x < w; x++) {
+              let sx = x - dx;
+              let sy = y - dy;
+              if (opts.current.tile) {
+                sx = ((sx % w) + w) % w;
+                sy = ((sy % doc.height) + doc.height) % doc.height;
+              }
+              if (sx < 0 || sy < 0 || sx >= w || sy >= doc.height) continue;
+              const from = (sy * w + sx) * 4;
+              data.set(drag.base.subarray(from, from + 4), (y * w + x) * 4);
+            }
+        }
         drag.moved = dx !== 0 || dy !== 0;
         doc.preview();
       }
@@ -320,10 +553,23 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
       drag = null;
       canvas.style.cursor = "";
       if (finished.kind === "pan") return;
-      if (finished.kind === "move" && !finished.moved) return doc.cancel();
+      if (finished.kind === "select") {
+        const [x0, y0] = finished.start;
+        const [x1, y1] = finished.to;
+        // 그냥 클릭하면 고르기 풀기
+        if (x0 === x1 && y0 === y1 && finished.mode === "replace") return doc.setSelection(null);
+        doc.setSelection(combineMask(doc.selection, rectMask(doc.width, doc.height, x0, y0, x1, y1), finished.mode));
+        return;
+      }
+      if (finished.kind === "move" && !finished.moved) {
+        const sel = finished.mask;
+        doc.cancel();
+        doc.selection = sel;
+        return;
+      }
       doc.commit();
-      const usedColor =
-        (finished.kind === "paint" && finished.color[3] > 0) || (finished.kind === "shape" && !shapeErase);
+      if (finished.kind === "move" && doc.selection) doc.setSelection(doc.selection);
+      const usedColor = (finished.kind === "paint" && finished.color[3] > 0) || (finished.kind === "shape" && !finished.erase);
       if (usedColor) callbacks.current.onUsedColor(opts.current.color);
     };
 
@@ -362,6 +608,7 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
 
     return () => {
       cancelAnimationFrame(frame);
+      clearInterval(antsTimer);
       resize.disconnect();
       unsubscribe();
       canvas.removeEventListener("pointerdown", onPointerDown);
@@ -375,10 +622,10 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
     };
   }, [doc, onReady]);
 
-  // 격자, 대칭, 색 같은 설정이 바뀌면 다시 그린다.
+  // 격자, 대칭, 양파 껍질, 타일 같은 설정이 바뀌면 다시 그린다.
   useEffect(() => {
     doc.preview();
-  }, [doc, options.grid, options.mirror]);
+  }, [doc, options.grid, options.symmetry, options.onion, options.tile]);
 
   return <canvas ref={canvasRef} className="pixel-canvas" data-tool={options.tool} />;
 }
