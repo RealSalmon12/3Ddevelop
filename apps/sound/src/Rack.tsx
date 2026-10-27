@@ -265,14 +265,16 @@ function CompCurve({ threshold, ratio, knee, makeup }: { threshold: number; rati
 interface RackProps {
   rack: Fx[];
   setRack: (r: Fx[]) => void;
-  live: boolean;
-  setLive: (v: boolean) => void;
-  onApply: () => void;
-  busy: boolean;
+  /** 멀티트랙의 트랙 랙처럼 늘 들리는 랙은 아래 셋을 빼고 title 만 준다 */
+  live?: boolean;
+  setLive?: (v: boolean) => void;
+  onApply?: () => void;
+  busy?: boolean;
   spectrum?: Float32Array | null;
+  title?: string;
 }
 
-export function RackPanel({ rack, setRack, live, setLive, onApply, busy, spectrum }: RackProps) {
+export function RackPanel({ rack, setRack, live = true, setLive, onApply, busy, spectrum, title = "🎛 효과 랙" }: RackProps) {
   const [open, setOpen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const dragFrom = useRef<number | null>(null);
@@ -286,10 +288,12 @@ export function RackPanel({ rack, setRack, live, setLive, onApply, busy, spectru
   return (
     <section className="suite-panel rack-panel">
       <div className="suite-panel-title rack-title">
-        <span>🎛 효과 랙</span>
-        <label className="rack-live" title="켜 두면 재생할 때 랙을 거친 소리를 들어요 (소리는 바뀌지 않아요)">
-          <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} /> 들으며 고치기
-        </label>
+        <span>{title}</span>
+        {setLive && (
+          <label className="rack-live" title="켜 두면 재생할 때 랙을 거친 소리를 들어요 (소리는 바뀌지 않아요)">
+            <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} /> 들으며 고치기
+          </label>
+        )}
       </div>
       <div className="suite-panel-body">
         <div className="rack-row">
@@ -301,7 +305,7 @@ export function RackPanel({ rack, setRack, live, setLive, onApply, busy, spectru
                 const r = p.make();
                 setRack(r);
                 setOpen(r[0]?.id ?? null);
-                setLive(true);
+                setLive?.(true);
               }
             }}
           >
@@ -370,7 +374,7 @@ export function RackPanel({ rack, setRack, live, setLive, onApply, busy, spectru
             ＋ 효과 넣기
           </button>
         )}
-        {rack.length > 0 && (
+        {rack.length > 0 && onApply && (
           <button className="mini go rack-apply" disabled={busy} onClick={onApply} title="고른 부분(없으면 전체)에 랙을 굳혀요">
             {busy ? "적용하는 중…" : "✔ 고른 부분에 적용"}
           </button>
