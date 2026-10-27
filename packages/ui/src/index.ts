@@ -9,3 +9,4 @@ export { Toast, useToast } from "./components/Toast";
 export { Segmented } from "./components/Segmented";
 export { isTourOpen, Tour, useTour, type TourStep } from "./components/Tour";
 export { UpdateButton, useUpdater } from "./components/Updater";
+export { useHistory } from "./useHistory";

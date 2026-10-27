@@ -58,10 +58,19 @@ export async function askAI(request: AIRequest): Promise<AIResponse> {
     ...(request.history ?? []).map((m) => ({ role: m.role, content: m.text })),
     {
       role: "user" as const,
-      content:
-        request.context === undefined
-          ? request.prompt
-          : `현재 상태:\n${JSON.stringify(request.context)}\n\n요청: ${request.prompt}`,
+      content: [
+        ...(request.images ?? []).map((img) => ({
+          type: "image" as const,
+          source: { type: "base64" as const, media_type: img.mediaType, data: img.data },
+        })),
+        {
+          type: "text" as const,
+          text:
+            request.context === undefined
+              ? request.prompt
+              : `현재 상태:\n${JSON.stringify(request.context)}\n\n요청: ${request.prompt}`,
+        },
+      ],
     },
   ];
 

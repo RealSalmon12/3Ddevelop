@@ -17,6 +17,8 @@ interface AIAssistantPanelProps {
   examples: string[];
   /** 요청과 함께 보낼 현재 작업 상태 */
   getContext?: () => unknown;
+  /** 요청과 함께 보여 줄 그림 (예: 지금 사진) */
+  getImages?: () => AIRequest["images"];
   /** AI 에게 주는 역할 설명과 답의 모양 */
   system?: string;
   tool?: AIRequest["tool"];
@@ -31,7 +33,7 @@ interface AIAssistantPanelProps {
 const HISTORY_LIMIT = 10;
 
 /** 모든 앱 공통 AI 도우미. 글로 부탁하면 메인 프로세스를 거쳐 AI 에게 전달한다. */
-export function AIAssistantPanel({ app, greeting, examples, getContext, system, tool, onResponse }: AIAssistantPanelProps) {
+export function AIAssistantPanel({ app, greeting, examples, getContext, getImages, system, tool, onResponse }: AIAssistantPanelProps) {
   const [messages, setMessages] = useState<Message[]>([{ role: "assistant", text: greeting }]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -64,7 +66,7 @@ export function AIAssistantPanel({ app, greeting, examples, getContext, system, 
     let response: AIResponse;
     try {
       response = window.suite
-        ? await window.suite.ai.ask({ app, prompt: text, context: getContext?.(), history, system, tool })
+        ? await window.suite.ai.ask({ app, prompt: text, context: getContext?.(), images: getImages?.(), history, system, tool })
         : { ok: false, reason: "not-configured", message: "AI 도우미는 설치된 프로그램에서만 쓸 수 있어요." };
     } catch (err) {
       response = { ok: false, reason: "error", message: String(err) };

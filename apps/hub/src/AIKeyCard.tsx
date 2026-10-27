@@ -61,7 +61,7 @@ export function AIKeyCard({ notify }: { notify: (message: string) => void }) {
           {configured ? "키 바꾸기" : "AI 키 넣기"}
         </button>
       )}
-      <p className="hub-small">한 번 넣으면 3D 모델러, 픽셀 그림판 모두 같은 키를 써요.</p>
+      <p className="hub-small">한 번 넣으면 모든 프로그램이 같은 키를 써요.</p>
     </section>
   );
 }

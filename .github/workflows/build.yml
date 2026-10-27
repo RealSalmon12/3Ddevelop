@@ -44,6 +44,9 @@ jobs:
           - app: pixel
             title: 픽셀 그림판
             latest: "false"
+          - app: photo
+            title: 사진 편집기
+            latest: "false"
     steps:
       - uses: actions/checkout@v4
         with:

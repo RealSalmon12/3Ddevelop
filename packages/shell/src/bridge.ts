@@ -11,6 +11,8 @@ export interface AIRequest {
   history?: { role: "user" | "assistant"; text: string }[];
   /** 앱이 AI 에게 주는 역할 설명 */
   system?: string;
+  /** 함께 보여 줄 그림 (예: 지금 편집 중인 사진). base64, 앞의 data: 부분 없이 */
+  images?: { mediaType: "image/jpeg" | "image/png"; data: string }[];
   /** AI 가 반드시 이 모양으로 답하게 한다 (예: 장면 바꾸기 명령) */
   tool?: { name: string; description: string; input_schema: Record<string, unknown> };
 }

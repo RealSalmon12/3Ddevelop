@@ -54,6 +54,9 @@ export const SUITE_APPS: SuiteApp[] = [
     description: "사진을 자르고 밝기를 고치고 글자를 넣어 썸네일을 만들어요.",
     likeness: "포토샵처럼",
     color: "#38c6d9",
+    tagPrefix: "photo-build-",
+    guid: "ba1e726c-3302-50f6-a4d8-e9af77d42385",
+    executable: "NugunaPhoto.exe",
   },
   {
     id: "sound",
