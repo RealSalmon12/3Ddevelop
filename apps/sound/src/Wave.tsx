@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { lengthOf, type Range, type Sound } from "./audio";
-import { fft, hann } from "./dsp";
+import { fft, hann, type Band } from "./dsp";
 
 export interface Marker {
   id: string;
@@ -22,6 +22,10 @@ interface Props {
   playhead: number | null;
   markers: Marker[];
   spectral: boolean;
+  /** 스펙트럼에서 주파수 상자로 고르기 (E) */
+  boxSelect: boolean;
+  band: Band | null;
+  onBand: (b: Band | null) => void;
   onSelect: (sel: Range | null, cursor: number) => void;
   onMarkerMove: (id: string, at: number, done: boolean) => void;
 }
@@ -165,7 +169,7 @@ export function Wave(props: Props) {
     const ctx = canvas.getContext("2d")!;
     let frame = 0;
     type Drag =
-      | { kind: "select"; anchor: number; moved: boolean }
+      | { kind: "select"; anchor: number; moved: boolean; box?: { lane: number; f: number } }
       | { kind: "edge"; fixed: number }
       | { kind: "overview"; offset: number }
       | { kind: "pan"; x: number; view: View }
@@ -186,6 +190,22 @@ export function Wave(props: Props) {
       const { w } = layout();
       return ((sample - view.start) / Math.max(1, view.end - view.start)) * w;
     };
+    // 스펙트럼 세로 위치 ↔ 주파수 (spectroOf 와 같은 로그 눈금)
+    const freqAt = (clientY: number, lane: number) => {
+      const { sound } = latest.current;
+      const { top, laneH } = layout();
+      const rect = canvas.getBoundingClientRect();
+      const t = Math.max(0, Math.min(1, (clientY - rect.top - top - lane * laneH) / laneH));
+      const nyq = sound.sampleRate / 2;
+      return 30 * Math.pow(nyq / 30, 1 - t);
+    };
+    const yOfFreq = (f: number, lane: number) => {
+      const { sound } = latest.current;
+      const { top, laneH } = layout();
+      const nyq = sound.sampleRate / 2;
+      const t = 1 - Math.log(Math.max(30, Math.min(nyq, f)) / 30) / Math.log(nyq / 30);
+      return top + lane * laneH + t * laneH;
+    };
     const sampleAt = (clientX: number) => {
       const { view, sound } = latest.current;
       const rect = canvas.getBoundingClientRect();
@@ -195,7 +215,7 @@ export function Wave(props: Props) {
 
     const draw = () => {
       frame = 0;
-      const { sound, view, selection, cursor, playhead, markers, spectral } = latest.current;
+      const { sound, view, selection, cursor, playhead, markers, spectral, band } = latest.current;
       const dpr = window.devicePixelRatio || 1;
       const { w, h, top, laneH } = layout();
       if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
@@ -340,6 +360,19 @@ export function Wave(props: Props) {
             for (let i = a; i < b; i++) ctx.fillRect(xOf(i) - 2, mid - ch[i] * amp - 2, 4, 4);
           }
         }
+        if (spectral) {
+          // 주파수 눈금
+          ctx.font = "9px ui-monospace, Consolas, monospace";
+          for (const f of [100, 500, 1000, 2000, 5000, 10000]) {
+            if (f >= sound.sampleRate / 2) continue;
+            const y = yOfFreq(f, c);
+            if (y < y0 + 14 || y > y0 + laneH - 6) continue;
+            ctx.fillStyle = "rgba(255,255,255,0.18)";
+            ctx.fillRect(w - 6, Math.round(y), 6, 1);
+            ctx.fillStyle = "rgba(255,255,255,0.45)";
+            ctx.fillText(f >= 1000 ? `${f / 1000}k` : `${f}`, w - 30, y - 5);
+          }
+        }
         // 채널 이름
         ctx.fillStyle = "rgba(255,255,255,0.35)";
         ctx.font = "bold 10px sans-serif";
@@ -351,8 +384,25 @@ export function Wave(props: Props) {
         ctx.stroke();
       });
 
-      // ── 선택 영역
-      if (selection) {
+      // ── 선택 영역 (주파수 상자면 채널마다 상자로)
+      if (selection && band && spectral) {
+        ctx.fillStyle = "rgba(255,255,255,0.25)";
+        ctx.fillRect(sx0, OVERVIEW, sx1 - sx0, RULER);
+        sound.channels.forEach((_, c) => {
+          const yTop = yOfFreq(band.high, c);
+          const yBot = yOfFreq(band.low, c);
+          ctx.fillStyle = "rgba(255,255,255,0.14)";
+          ctx.fillRect(sx0, yTop, sx1 - sx0, yBot - yTop);
+          ctx.strokeStyle = "#e9ecf5";
+          ctx.setLineDash([5, 3]);
+          ctx.strokeRect(Math.round(sx0) + 0.5, Math.round(yTop) + 0.5, Math.round(sx1 - sx0), Math.round(yBot - yTop));
+          ctx.setLineDash([]);
+        });
+        ctx.fillStyle = "#e9ecf5";
+        ctx.font = "10px ui-monospace, Consolas, monospace";
+        const hz = (f: number) => (f >= 1000 ? `${(f / 1000).toFixed(1)}k` : `${Math.round(f)}`);
+        ctx.fillText(`${hz(band.low)}–${hz(band.high)} Hz`, sx0 + 4, yOfFreq(band.high, 0) + 4);
+      } else if (selection) {
         ctx.fillStyle = "rgba(255,255,255,0.13)";
         ctx.fillRect(sx0, top, sx1 - sx0, h - top);
         ctx.fillStyle = "rgba(255,255,255,0.25)";
@@ -456,6 +506,12 @@ export function Wave(props: Props) {
           return;
         }
       }
+      if (p.spectral && p.boxSelect && n) {
+        const { top, laneH, chs } = layout();
+        const lane = Math.max(0, Math.min(chs - 1, Math.floor((y - top) / laneH)));
+        drag = { kind: "select", anchor: s, moved: false, box: { lane, f: freqAt(e.clientY, lane) } };
+        return;
+      }
       drag = { kind: "select", anchor: s, moved: false };
     };
 
@@ -466,7 +522,7 @@ export function Wave(props: Props) {
       const n = lengthOf(p.sound);
       if (!drag) {
         const near = p.selection && [p.selection.start, p.selection.end].some((v) => Math.abs(xOf(v) - (e.clientX - rect.left)) < 6);
-        canvas.style.cursor = e.clientY - rect.top < OVERVIEW ? "grab" : near ? "ew-resize" : "text";
+        canvas.style.cursor = e.clientY - rect.top < OVERVIEW ? "grab" : near ? "ew-resize" : p.spectral && p.boxSelect ? "crosshair" : "text";
         return schedule();
       }
       const s = sampleAt(e.clientX);
@@ -477,6 +533,10 @@ export function Wave(props: Props) {
           if (!drag.moved && Math.abs(xOf(s) - xOf(drag.anchor)) < 3) return;
           drag.moved = true;
           p.onSelect(b > a ? { start: a, end: b } : null, a);
+          if (drag.box) {
+            const f = freqAt(e.clientY, drag.box.lane);
+            p.onBand({ low: Math.min(f, drag.box.f), high: Math.max(f, drag.box.f) });
+          }
           autoScroll(e.clientX);
           break;
         }
