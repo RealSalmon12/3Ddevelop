@@ -1,27 +1,9 @@
 // 새 설치 파일이 Releases 에 올라가면 디스코드 🆕┃업데이트 채널에 알린다.
 // build.yml 의 ‘디스코드에 알리기’ 단계에서 실행한다. 토큰이 없으면 아무것도 안 하고 끝난다.
-const API = "https://discord.com/api/v10";
+import { api, guildId, token } from "./api.mjs";
+
 const UPDATES_CHANNEL = "🆕┃업데이트";
-const DEFAULT_GUILD_ID = "1564532143848300595";
-
-const token = (process.env.DISCORD_BOT_TOKEN ?? "").trim();
-const guildId = (process.env.DISCORD_GUILD_ID ?? "").trim() || DEFAULT_GUILD_ID;
 const { APP_TITLE, BUILD, RELEASE_URL } = process.env;
-
-async function api(method, path, body) {
-  const res = await fetch(API + path, {
-    method,
-    headers: {
-      Authorization: `Bot ${token}`,
-      "Content-Type": "application/json",
-      "User-Agent": "BacoStudioSetup (https://github.com/RealSalmon12/3Ddevelop, 1.0)",
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status} ${JSON.stringify(data)}`);
-  return data;
-}
 
 async function main() {
   if (!token) return console.log("디스코드 봇 토큰이 없어서 알림은 건너뛰어요.");

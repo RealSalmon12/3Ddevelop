@@ -4,9 +4,16 @@
 //
 // - 봇 토큰은 GitHub 비밀값(DISCORD_BOT_TOKEN)으로만 받는다. 저장소에 절대 넣지 않는다.
 // - 이미 있는 역할·채널은 이름으로 알아보고 건너뛰므로 여러 번 실행해도 괜찮다.
-// - 원래 있던 채널은 지우지 않는다.
-const DEFAULT_GUILD_ID = "1564532143848300595";
-const API = "https://discord.com/api/v10";
+// - 안내·사용법 글은 다시 실행하면 지금 내용으로 고쳐진다.
+// - REMOVED_CHANNELS 에 적은 채널만 지우고, 원래 있던 다른 채널은 건드리지 않는다.
+import { readFile } from "node:fs/promises";
+import { api, guildId, sameName, token } from "./api.mjs";
+import { GUIDES } from "./guides.mjs";
+import { VERIFY_CHANNEL, VERIFY_EMOJI, grantVerified } from "./verify.mjs";
+
+const SERVER_NAME = "바코 스튜디오";
+const BOT_NAME = "바코";
+const ICON = new URL("./assets/walrus.png", import.meta.url);
 
 // 디스코드 권한 비트
 const P = {
@@ -59,6 +66,15 @@ const ROLES = [
     mentionable: true,
     permissions: bits(P.manageThreads),
   },
+  {
+    // ✅ 인증을 하면 받는 역할. 이 역할이 있어야 대부분의 채널이 보인다.
+    key: "member",
+    name: "🐾 멤버",
+    color: COLORS.ice,
+    hoist: false,
+    mentionable: false,
+    permissions: bits(P.viewChannel, P.readHistory),
+  },
 ];
 
 const APP_TAGS = [
@@ -71,22 +87,32 @@ const APP_TAGS = [
 ];
 
 // readOnly: 일반 멤버는 읽기만 하고 운영진만 글을 쓴다.
+// public: 인증하기 전에도 보인다. 나머지 채널은 🐾 멤버 역할이 있어야 보인다.
 const LAYOUT = [
   {
     category: "📢 안내",
     channels: [
-      { key: "rules", name: "📜┃규칙", type: TEXT, readOnly: true, topic: "꼭 읽어 주세요! 모두가 즐겁게 지내기 위한 약속이에요." },
-      { key: "welcome", name: "👋┃처음-오셨나요", type: TEXT, readOnly: true, topic: "바코 스튜디오가 처음이라면 여기부터! 설치 방법과 채널 안내가 있어요." },
+      { key: "verify", name: VERIFY_CHANNEL, type: TEXT, readOnly: true, public: true, topic: "✅ 를 눌러야 서버의 모든 채널이 열려요!" },
+      { key: "rules", name: "📜┃규칙", type: TEXT, readOnly: true, public: true, topic: "꼭 읽어 주세요! 모두가 즐겁게 지내기 위한 약속이에요." },
+      { key: "welcome", name: "👋┃처음-오셨나요", type: TEXT, readOnly: true, public: true, topic: "바코 스튜디오가 처음이라면 여기부터! 설치 방법과 채널 안내가 있어요." },
       { key: "notice", name: "📣┃공지", type: ANNOUNCEMENT, readOnly: true, topic: "운영진의 공지사항" },
       { key: "updates", name: "🆕┃업데이트", type: ANNOUNCEMENT, readOnly: true, topic: "새 버전이 나오면 자동으로 알려 드려요." },
     ],
   },
   {
-    category: "💬 바다코끼리 광장",
+    category: "📖 사용법",
     channels: [
-      { key: "chat", name: "💬┃자유-대화", type: TEXT, topic: "아무 이야기나 편하게 나눠요." },
-      { key: "intro", name: "🙋┃자기소개", type: TEXT, topic: "어떤 걸 만들고 싶은지 소개해 주세요!" },
+      { key: "guide-start", guide: "start", name: "📖┃시작하기", type: TEXT, readOnly: true, topic: "설치, AI 도우미, 업데이트, 공통 단축키" },
+      { key: "guide-modeler", guide: "modeler", name: "📖┃빙산-사용법", type: TEXT, readOnly: true, topic: "바코 빙산 (3D 모델링) 사용법" },
+      { key: "guide-pixel", guide: "pixel", name: "📖┃눈꽃-사용법", type: TEXT, readOnly: true, topic: "바코 눈꽃 (픽셀 그림) 사용법" },
+      { key: "guide-photo", guide: "photo", name: "📖┃진주-사용법", type: TEXT, readOnly: true, topic: "바코 진주 (사진 꾸미기) 사용법" },
+      { key: "guide-sound", guide: "sound", name: "📖┃파도-사용법", type: TEXT, readOnly: true, topic: "바코 파도 (효과음, 소리 편집) 사용법" },
+      { key: "guide-video", guide: "video", name: "📖┃오로라-사용법", type: TEXT, readOnly: true, topic: "바코 오로라 (영상 편집) 사용법" },
     ],
+  },
+  {
+    category: "💬 바다코끼리 광장",
+    channels: [{ key: "chat", name: "💬┃자유-대화", type: TEXT, topic: "아무 이야기나 편하게 나눠요." }],
   },
   {
     category: "🎨 프로그램별 이야기",
@@ -141,6 +167,9 @@ const LAYOUT = [
   },
 ];
 
+// 예전에 만들었다가 없애기로 한 채널
+const REMOVED_CHANNELS = ["🙋┃자기소개"];
+
 const RULES = [
   "**1. 서로 친절하게 대해 주세요.** 처음 해 보는 사람도 많아요. 모르는 걸 물어보는 건 부끄러운 일이 아니에요.",
   "**2. 욕설, 비하, 괴롭힘은 안 돼요.** 다른 사람의 작품을 깎아내리지 말고, 의견은 부드럽게 말해 주세요.",
@@ -151,91 +180,85 @@ const RULES = [
   "**7. 모두가 볼 수 있는 곳이에요.** 무섭거나 어른용 내용은 올리지 말아 주세요.",
 ];
 
-function rulesEmbed() {
-  return {
-    title: "📜 바코 스튜디오 커뮤니티 규칙",
-    color: COLORS.sunflower,
-    description: `${RULES.join("\n\n")}\n\n규칙을 어기면 🦭 운영진이 경고하거나 내보낼 수 있어요. 궁금한 건 운영진에게 편하게 물어보세요!`,
-  };
-}
+const ch = (ids, key) => (ids[key] ? `<#${ids[key]}>` : "");
 
-function welcomeEmbeds(ids) {
-  const ch = (key) => (ids[key] ? `<#${ids[key]}>` : "");
+function verifyMessages(ids) {
   return [
-    {
-      title: "👋 바코 스튜디오에 오신 걸 환영해요!",
-      color: COLORS.ice,
-      description:
-        "바코 스튜디오는 처음 해 보는 사람도 쉽게 쓸 수 있는 무료 창작 프로그램 모음이에요. 🦭\n\n" +
-        "🧊 **바코 빙산** · 3D 모델링 (로블록스 모델, AI가 만들어 주는 모델)\n" +
-        "❄️ **바코 눈꽃** · 픽셀 아트 (로블록스 옷, 아이콘)\n" +
-        "🦪 **바코 진주** · 사진 편집\n" +
-        "🌊 **바코 파도** · 소리 편집\n" +
-        "🌌 **바코 오로라** · 영상 편집",
-    },
-    {
-      title: "⬇️ 설치하는 법 (Windows)",
-      color: COLORS.lilac,
-      description:
-        "1. 아래 링크에서 **바코 스튜디오 허브** 설치 파일(.exe)을 받아요.\n" +
-        "2. 받은 파일을 실행하면 허브가 열려요.\n" +
-        "3. 허브에서 원하는 프로그램의 **설치** 버튼을 누르면 끝!\n\n" +
-        "https://github.com/RealSalmon12/3Ddevelop/releases/latest\n\n" +
-        "새 버전이 나오면 프로그램이 알아서 알려 주고, " + ch("updates") + " 채널에도 소식이 올라와요.",
-    },
-    {
-      title: "🧭 어디로 가면 될까요?",
-      color: COLORS.mint,
-      description: [
-        `${ch("rules")} 먼저 규칙을 읽어 주세요`,
-        `${ch("intro")} 반갑게 자기소개해요`,
-        `${ch("help")} 모르는 게 있으면 질문해요`,
-        `${ch("bugs")} 이상한 걸 찾으면 알려 주세요`,
-        `${ch("ideas")} 갖고 싶은 기능을 제안해요`,
-        `${ch("showcase")} 만든 작품을 자랑해요`,
-      ]
-        .filter((line) => !line.startsWith(" "))
-        .join("\n"),
-    },
+    [
+      {
+        title: "✅ 인증하고 들어오기",
+        color: COLORS.mint,
+        description:
+          `바코 스튜디오 커뮤니티에 오신 걸 환영해요! 🦭\n\n` +
+          `**1.** ${ch(ids, "rules")} 에서 규칙을 읽어 주세요.\n` +
+          `**2.** 이 글 아래의 ${VERIFY_EMOJI} 를 눌러 주세요.\n` +
+          `**3.** 잠시 뒤(보통 5~10분 안에) 🐾 멤버 역할이 생기고 모든 채널이 열려요. 처리되면 누른 ${VERIFY_EMOJI} 는 사라져요.\n\n` +
+          `채널이 열리면 이전 대화도 모두 볼 수 있어요.`,
+      },
+    ],
   ];
 }
 
-// ───────────────────────── 디스코드 API ─────────────────────────
-
-let token = "";
-
-async function api(method, path, body, reason) {
-  for (;;) {
-    const res = await fetch(API + path, {
-      method,
-      headers: {
-        Authorization: `Bot ${token}`,
-        "Content-Type": "application/json",
-        "User-Agent": "BacoStudioSetup (https://github.com/RealSalmon12/3Ddevelop, 1.0)",
-        ...(reason ? { "X-Audit-Log-Reason": encodeURIComponent(reason) } : {}),
+function rulesMessages() {
+  return [
+    [
+      {
+        title: "📜 바코 스튜디오 커뮤니티 규칙",
+        color: COLORS.sunflower,
+        description: `${RULES.join("\n\n")}\n\n규칙을 어기면 🦭 운영진이 경고하거나 내보낼 수 있어요. 궁금한 건 운영진에게 편하게 물어보세요!`,
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    if (res.status === 429) {
-      const data = await res.json().catch(() => ({}));
-      await new Promise((r) => setTimeout(r, Math.ceil((data.retry_after ?? 1) * 1000) + 100));
-      continue;
-    }
-    if (res.status === 204) return null;
-    const data = await res.json().catch(() => null);
-    if (!res.ok) {
-      const err = new Error(`${method} ${path} → ${res.status} ${JSON.stringify(data)}`);
-      err.status = res.status;
-      err.code = data?.code;
-      throw err;
-    }
-    return data;
-  }
+    ],
+  ];
 }
 
-// 디스코드가 이름을 살짝 바꿔 저장할 수 있어서(소문자, 띄어쓰기→-, 이모지 꼬리표) 비교할 때 맞춰 준다.
-const norm = (name) => name.replace(/\uFE0F/g, "").toLowerCase().replace(/[\s-]+/g, "-");
-const sameName = (a, b) => norm(a) === norm(b);
+function welcomeMessages(ids) {
+  const lines = [
+    [ids.verify, `${ch(ids, "verify")} ${VERIFY_EMOJI} 를 눌러 서버에 들어와요`],
+    [ids.rules, `${ch(ids, "rules")} 규칙을 읽어요`],
+    [ids["guide-start"], `${ch(ids, "guide-start")} 설치하는 법과 프로그램별 사용법을 봐요`],
+    [ids.help, `${ch(ids, "help")} 모르는 게 있으면 질문해요`],
+    [ids.bugs, `${ch(ids, "bugs")} 이상한 걸 찾으면 알려 주세요`],
+    [ids.ideas, `${ch(ids, "ideas")} 갖고 싶은 기능을 제안해요`],
+    [ids.showcase, `${ch(ids, "showcase")} 만든 작품을 자랑해요`],
+  ];
+  return [
+    [
+      {
+        title: "👋 바코 스튜디오에 오신 걸 환영해요!",
+        color: COLORS.ice,
+        description:
+          "바코 스튜디오는 처음 해 보는 사람도 쉽게 쓸 수 있는 무료 창작 프로그램 모음이에요. 🦭\n\n" +
+          "🧊 **바코 빙산** · 3D 모델링 (로블록스 모델, AI가 만들어 주는 모델)\n" +
+          "❄️ **바코 눈꽃** · 픽셀 아트 (로블록스 옷, 아이콘)\n" +
+          "🦪 **바코 진주** · 사진 편집\n" +
+          "🌊 **바코 파도** · 소리 편집\n" +
+          "🌌 **바코 오로라** · 영상 편집",
+      },
+      {
+        title: "⬇️ 설치하는 법 (Windows)",
+        color: COLORS.lilac,
+        description:
+          "1. 아래 링크에서 **바코 스튜디오 허브** 설치 파일(.exe)을 받아요.\n" +
+          "2. 받은 파일을 실행하면 허브가 열려요.\n" +
+          "3. 허브에서 원하는 프로그램의 **설치** 버튼을 누르면 끝!\n\n" +
+          "https://github.com/RealSalmon12/3Ddevelop/releases/latest\n\n" +
+          "새 버전이 나오면 프로그램이 알아서 알려 주고, " + ch(ids, "updates") + " 채널에도 소식이 올라와요.",
+      },
+      {
+        title: "🧭 어디로 가면 될까요?",
+        color: COLORS.mint,
+        description: lines.filter(([id]) => id).map(([, text]) => text).join("\n"),
+      },
+    ],
+  ];
+}
+
+function guideMessages(key) {
+  const guide = GUIDES[key];
+  return guide.messages.map((embeds) => embeds.map((e) => ({ color: guide.color, ...e })));
+}
+
+// ───────────────────────── 실행 ─────────────────────────
 
 const say = (msg) => console.log(msg);
 const done = (msg) => console.log(`  ✅ ${msg}`);
@@ -243,8 +266,6 @@ const skip = (msg) => console.log(`  ⏭️  ${msg} (이미 있어요)`);
 
 async function main() {
   say("\n🦭 바코 스튜디오 디스코드 서버 세팅\n");
-  token = (process.env.DISCORD_BOT_TOKEN ?? "").trim();
-  const guildId = (process.env.DISCORD_GUILD_ID ?? "").trim() || DEFAULT_GUILD_ID;
   if (!token) {
     say("❌ 봇 토큰이 없어요. GitHub 저장소 Settings → Secrets and variables → Actions 에 DISCORD_BOT_TOKEN 을 저장해 주세요.");
     process.exit(1);
@@ -255,11 +276,12 @@ async function main() {
     app = await api("GET", "/oauth2/applications/@me");
   } catch (e) {
     if (e.status === 401) {
-      say("\n❌ 토큰이 맞지 않아요. 디스코드 개발자 페이지의 Bot 메뉴에서 ‘Reset Token’으로 새 토큰을 받아 다시 해 보세요.");
+      say("\n❌ 토큰이 맞지 않아요. 디스코드 개발자 페이지의 Bot 메뉴에서 ‘Reset Token’으로 새 토큰을 받아 다시 저장해 주세요.");
       process.exit(1);
     }
     throw e;
   }
+  const me = await api("GET", "/users/@me");
 
   // 봇이 아직 서버에 없으면 초대 링크를 알려 주고 멈춘다.
   let guild;
@@ -272,35 +294,82 @@ async function main() {
     say(`   ${invite}\n`);
     process.exit(1);
   }
-  say(`\n서버 ‘${guild.name}’ 에 세팅을 시작해요.\n`);
+  say(`서버 ‘${guild.name}’ 에 세팅을 시작해요.\n`);
+
+  // ── 서버·봇 프로필 ──
+  say("프로필 꾸미기");
+  const icon = `data:image/png;base64,${(await readFile(ICON)).toString("base64")}`;
+  await api("PATCH", `/guilds/${guildId}`, { name: SERVER_NAME, icon, default_message_notifications: 1 }, "바코 스튜디오 세팅");
+  done(`서버 이름 ‘${SERVER_NAME}’, 바다코끼리 아이콘, 알림은 @멘션만`);
+  try {
+    const patch = { avatar: icon, ...(me.username !== BOT_NAME ? { username: BOT_NAME } : {}) };
+    await api("PATCH", "/users/@me", patch);
+    done(`봇 이름 ‘${BOT_NAME}’, 바다코끼리 프로필 사진`);
+  } catch (e) {
+    // 봇 이름·사진은 한 시간에 몇 번만 바꿀 수 있다. 못 바꿔도 나머지는 계속한다.
+    say(`  ℹ️  봇 프로필은 이번에 못 바꿨어요 (${e.status}). 나중에 다시 실행하면 돼요.`);
+  }
 
   // ── 역할 ──
   say("역할 만들기");
   const roles = await api("GET", `/guilds/${guildId}/roles`);
   const roleIds = {};
+  let memberRoleIsNew = false;
   for (const role of ROLES) {
+    const { key, ...body } = role;
     const found = roles.find((r) => r.name === role.name);
     if (found) {
-      roleIds[role.key] = found.id;
+      roleIds[key] = found.id;
+      // 권한이 바뀌었을 수 있으니 맞춰 둔다.
+      if (found.permissions !== body.permissions) await api("PATCH", `/guilds/${guildId}/roles/${found.id}`, { permissions: body.permissions });
       skip(role.name);
       continue;
     }
-    const { key, ...body } = role;
     const created = await api("POST", `/guilds/${guildId}/roles`, body, "바코 스튜디오 세팅");
     roleIds[key] = created.id;
+    if (key === "member") memberRoleIsNew = true;
     done(role.name);
   }
 
+  // 처음 문을 잠그기 전에, 이미 서버에 있던 사람들은 멤버로 넣어 준다.
+  if (memberRoleIsNew) {
+    try {
+      const members = await api("GET", `/guilds/${guildId}/members?limit=1000`);
+      let count = 0;
+      for (const m of members) {
+        if (m.user?.bot || m.roles.includes(roleIds.member)) continue;
+        await api("PUT", `/guilds/${guildId}/members/${m.user.id}/roles/${roleIds.member}`, undefined, "이미 있던 멤버");
+        count++;
+      }
+      done(`이미 있던 ${count}명에게 🐾 멤버 역할`);
+    } catch {
+      say("  ℹ️  이미 있던 사람 목록을 못 읽었어요. 그분들도 ✅ 를 한 번 눌러 주면 돼요.");
+    }
+  }
+
+  // @everyone(인증 안 한 사람)은 채널을 못 보고, 볼 수 있게 되면 이전 메시지도 읽을 수 있게 한다.
+  const everyone = roles.find((r) => r.id === guildId);
+  const everyonePerms = ((BigInt(everyone.permissions) & ~P.viewChannel) | P.readHistory).toString();
+  if (everyone.permissions !== everyonePerms) {
+    await api("PATCH", `/guilds/${guildId}/roles/${guildId}`, { permissions: everyonePerms }, "✅ 인증해야 채널이 보이게");
+  }
+  done("인증 전에는 안내 채널만 보이게, 들어오면 이전 메시지도 보이게");
+
   // ── 채널 ──
-  const everyone = guildId; // @everyone 역할 ID는 서버 ID와 같다.
-  const readOnly = [
-    { id: everyone, type: 0, allow: bits(P.viewChannel, P.readHistory, P.addReactions), deny: bits(P.sendMessages, P.createPublicThreads, P.sendInThreads) },
+  const readOnlyFor = (spec) => [
+    {
+      id: guildId,
+      type: 0,
+      allow: spec.public ? bits(P.viewChannel, P.readHistory, P.addReactions) : bits(P.readHistory, P.addReactions),
+      deny: bits(P.sendMessages, P.createPublicThreads, P.sendInThreads),
+    },
     { id: roleIds.staff, type: 0, allow: bits(P.sendMessages, P.embedLinks, P.attachFiles, P.mentionEveryone), deny: "0" },
-    { id: app.bot?.id ?? app.id, type: 1, allow: bits(P.viewChannel, P.sendMessages, P.embedLinks, P.manageMessages), deny: "0" },
+    { id: me.id, type: 1, allow: bits(P.viewChannel, P.sendMessages, P.embedLinks, P.manageMessages, P.addReactions), deny: "0" },
   ];
 
   let channels = await api("GET", `/guilds/${guildId}/channels`);
   const ids = {};
+  const order = [];
   for (const group of LAYOUT) {
     say(`채널 만들기 · ${group.category}`);
     let category = channels.find((c) => c.type === CATEGORY && sameName(c.name, group.category));
@@ -310,9 +379,12 @@ async function main() {
       channels.push(category);
       done(group.category);
     }
+    order.push(category);
     for (const spec of group.channels) {
       let channel = channels.find((c) => sameName(c.name, spec.name) && c.type !== CATEGORY);
       if (channel) {
+        const patch = { parent_id: category.id, ...(spec.readOnly ? { permission_overwrites: readOnlyFor(spec) } : {}) };
+        channel = await api("PATCH", `/channels/${channel.id}`, patch, "바코 스튜디오 세팅");
         skip(spec.name);
       } else {
         const body = {
@@ -320,7 +392,7 @@ async function main() {
           type: spec.type,
           parent_id: category.id,
           ...(spec.topic && spec.type !== VOICE ? { topic: spec.topic } : {}),
-          ...(spec.readOnly ? { permission_overwrites: readOnly } : {}),
+          ...(spec.readOnly ? { permission_overwrites: readOnlyFor(spec) } : {}),
           ...(spec.tags ? { available_tags: spec.tags } : {}),
         };
         try {
@@ -335,23 +407,60 @@ async function main() {
         channels.push(channel);
         done(spec.name);
       }
+      order.push(channel);
       if (spec.key) ids[spec.key] = channel.id;
     }
   }
 
-  // ── 규칙·환영 글 ──
+  say("필요 없는 채널 지우기");
+  for (const name of REMOVED_CHANNELS) {
+    const channel = channels.find((c) => sameName(c.name, name) && c.type !== CATEGORY);
+    if (!channel) continue;
+    await api("DELETE", `/channels/${channel.id}`, undefined, "바코 스튜디오 세팅");
+    done(`${name} 지움`);
+  }
+
+  // LAYOUT 순서대로 줄 세운다. (원래 있던 다른 채널은 맨 아래로 간다)
+  await api(
+    "PATCH",
+    `/guilds/${guildId}/channels`,
+    order.map((c, i) => ({ id: c.id, position: i })),
+  );
+  done("채널 순서 정리");
+
+  // ── 안내·사용법 글 ──
   say("안내 글 올리기");
-  const me = await api("GET", "/users/@me");
-  async function postOnce(channelKey, label, payload) {
+  // 봇이 쓴 글이 있으면 고치고, 모자라면 새로 올리고, 남으면 지운다.
+  async function upsertMessages(channelKey, label, messages, { pin = true } = {}) {
     const id = ids[channelKey];
     const recent = await api("GET", `/channels/${id}/messages?limit=50`);
-    if (recent.some((m) => m.author?.id === me.id)) return skip(label);
-    const msg = await api("POST", `/channels/${id}/messages`, payload);
-    await api("PUT", `/channels/${id}/pins/${msg.id}`).catch(() => {});
+    const mine = recent.filter((m) => m.author?.id === me.id).reverse();
+    const sent = [];
+    for (const [i, embeds] of messages.entries()) {
+      if (mine[i]) sent.push(await api("PATCH", `/channels/${id}/messages/${mine[i].id}`, { content: "", embeds }));
+      else {
+        const msg = await api("POST", `/channels/${id}/messages`, { embeds });
+        if (pin && i === 0) await api("PUT", `/channels/${id}/pins/${msg.id}`).catch(() => {});
+        sent.push(msg);
+      }
+    }
+    for (const extra of mine.slice(messages.length)) await api("DELETE", `/channels/${id}/messages/${extra.id}`);
     done(label);
+    return sent;
   }
-  await postOnce("rules", "규칙", { embeds: [rulesEmbed()] });
-  await postOnce("welcome", "환영 안내", { embeds: welcomeEmbeds(ids) });
+  const [verifyMsg] = await upsertMessages("verify", "✅ 인증 안내", verifyMessages(ids));
+  await api("PUT", `/channels/${ids.verify}/messages/${verifyMsg.id}/reactions/${encodeURIComponent(VERIFY_EMOJI)}/@me`);
+  await upsertMessages("rules", "규칙", rulesMessages());
+  await upsertMessages("welcome", "환영 안내", welcomeMessages(ids));
+  for (const group of LAYOUT) {
+    for (const spec of group.channels) {
+      if (spec.guide) await upsertMessages(spec.key, `${spec.name} 사용법`, guideMessages(spec.guide), { pin: false });
+    }
+  }
+
+  // 세팅하는 사이에 ✅ 를 누른 사람이 있으면 바로 처리한다.
+  const granted = await grantVerified();
+  if (granted) done(`✅ 누른 ${granted}명에게 🐾 멤버 역할`);
 
   // ── 초대 링크 ──
   const invite = await api("POST", `/channels/${ids.welcome}/invites`, { max_age: 0, max_uses: 0, unique: false }, "바코 스튜디오 세팅");
@@ -359,7 +468,7 @@ async function main() {
   say("\n🎉 다 됐어요!\n");
   say(`초대 링크: https://discord.gg/${invite.code}`);
   say("새 버전이 나오면 🆕┃업데이트 채널에 자동으로 알림이 올라가요.");
-  say("원래 있던 ‘일반’ 같은 채널은 그대로 뒀어요. 필요 없으면 디스코드에서 지워도 돼요.\n");
+  say("✅ 인증은 ‘디스코드 인증 처리’ 워크플로가 5분마다 처리해요.\n");
 }
 
 main().catch((e) => {
