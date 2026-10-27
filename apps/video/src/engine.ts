@@ -48,6 +48,8 @@ export interface ExportOptions {
   videoBitsPerSecond: number;
   /** 시퀀스 크기에 곱한다 (1 = 그대로, 0.5 = 절반) */
   scale: number;
+  /** 있으면 녹화 대신 프레임마다 정확히 인코딩한다 */
+  exact?: "mp4" | "webm";
 }
 
 /** MP4(H.264) 를 녹화할 수 있으면 먼저 쓴다. 유튜브, 디스코드, 휴대폰에서 바로 열린다. */
@@ -600,6 +602,83 @@ export class Engine {
     this.onTime(this.time, false);
   }
 
+  // ---------- 정확 내보내기 (프레임마다) ----------
+
+  private decoded = new Map<string, Promise<AudioBuffer | null>>();
+
+  /** 사진 클립의 그림을 미리 모두 불러 둔다 */
+  async preloadStills(from: number, to: number) {
+    const ids = new Set(this.project.clips.filter((c) => c.kind === "image" && c.start < to && clipEnd(c) > from).map((c) => c.mediaId!));
+    await Promise.all(
+      [...ids].map(async (id) => {
+        this.imageFor(id);
+        await this.images.get(id)?.decode().catch(() => {});
+      }),
+    );
+  }
+
+  /** 시간 t 의 화면을 target 에 그린다. 영상은 정확히 그 프레임으로 옮긴 다음 그린다. */
+  async renderAt(t: number, target: HTMLCanvasElement, scale: number) {
+    this.time = t;
+    const waits: Promise<void>[] = [];
+    for (const c of this.liveClips(t)) {
+      if (c.kind !== "video") continue;
+      const el = this.elementFor(c) as HTMLVideoElement | null;
+      if (el) waits.push(seekExact(el, sourceTime(c, t)));
+    }
+    await Promise.all(waits);
+    this.draw(target, scale);
+  }
+
+  private decodeMedia(mediaId: string): Promise<AudioBuffer | null> {
+    let p = this.decoded.get(mediaId);
+    if (!p) {
+      const media = this.project.media.find((m) => m.id === mediaId);
+      p = (async () => {
+        if (!media || !window.suite) return null;
+        const bytes = await window.suite.files.read(media.path);
+        if (!bytes) return null;
+        try {
+          return await new OfflineAudioContext(1, 1, 48000).decodeAudioData(bytes.slice().buffer);
+        } catch {
+          return null; // 소리 없는 영상
+        }
+      })();
+      this.decoded.set(mediaId, p);
+    }
+    return p;
+  }
+
+  /** from~to 의 소리를 화면 녹화 없이 바로 섞는다 (볼륨 키프레임, 페이드, 속도, 음소거/솔로 반영) */
+  async mixAudio(from: number, to: number, sampleRate = 48000): Promise<AudioBuffer> {
+    const off = new OfflineAudioContext(2, Math.max(1, Math.ceil((to - from) * sampleRate)), sampleRate);
+    for (const c of this.project.clips) {
+      if ((c.kind !== "video" && c.kind !== "audio") || !c.mediaId) continue;
+      const s0 = Math.max(c.start, from);
+      const e0 = Math.min(clipEnd(c), to);
+      if (e0 - s0 <= 1e-4) continue;
+      if (!activeClips(this.project, (s0 + e0) / 2, "audible").some((a) => a.id === c.id)) continue;
+      const buf = await this.decodeMedia(c.mediaId);
+      if (!buf) continue;
+      const src = off.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = c.speed;
+      const g = off.createGain();
+      src.connect(g).connect(off.destination);
+      // 볼륨과 페이드를 100분의 1초마다 따라간다
+      for (let t = s0; ; t = Math.min(e0, t + 0.01)) {
+        const v = Math.max(0, (evalParam(c.params.volume, t - c.start) / 100) * fadeFactor(c, t));
+        if (t === s0) g.gain.setValueAtTime(v, t - from);
+        else g.gain.linearRampToValueAtTime(v, t - from);
+        if (t >= e0) break;
+      }
+      const offset = sourceTime(c, s0);
+      if (offset >= buf.duration) continue;
+      src.start(s0 - from, offset, Math.min(buf.duration - offset, (e0 - s0) * c.speed));
+    }
+    return off.startRendering();
+  }
+
   /** 범위를 처음부터 끝까지 재생하면서 녹화한다 (실제 길이만큼 걸린다). */
   async record(options: ExportOptions, onProgress: (ratio: number) => void, signal: { cancel: boolean }): Promise<Blob | null> {
     const ac = this.ensureAudio();
@@ -713,4 +792,19 @@ export function drawText(ctx: CanvasRenderingContext2D, t: NonNullable<Clip["tex
     ctx.fillStyle = t.color;
     ctx.fillText(line, anchor, y);
   });
+}
+
+/** 영상을 정확히 그 시간으로 옮기고 그 프레임이 준비될 때까지 기다린다 */
+async function seekExact(el: HTMLVideoElement, want: number) {
+  const wait = (ev: string, ms: number) =>
+    new Promise<void>((resolve) => {
+      const done = () => (el.removeEventListener(ev, done), clearTimeout(timer), resolve());
+      const timer = setTimeout(done, ms);
+      el.addEventListener(ev, done);
+    });
+  if (el.readyState < 1) await wait("loadedmetadata", 5000);
+  const t = Math.max(0, Math.min(want, (el.duration || Infinity) - 0.001));
+  if (Math.abs(el.currentTime - t) < 1e-4 && !el.seeking && el.readyState >= 2) return;
+  el.currentTime = t;
+  await wait("seeked", 5000);
 }

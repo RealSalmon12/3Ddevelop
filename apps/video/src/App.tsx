@@ -21,6 +21,7 @@ import {
 import { AI_SYSTEM, AI_TOOL, aiContext, applyAICaptions } from "./ai";
 import { EffectControls } from "./EffectControls";
 import { Engine, exportFormats } from "./engine";
+import { canExportExact, exportExact } from "./exactExport";
 import { kindOf, MEDIA_FILTER, probeMedia, thumbnail } from "./media";
 import {
   clearRange,
@@ -98,7 +99,7 @@ export function App() {
   const [previewScale, setPreviewScale] = useState(0.5);
   const [safeMargins, setSafeMargins] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const [exporting, setExporting] = useState<{ ratio: number; signal: { cancel: boolean } } | null>(null);
+  const [exporting, setExporting] = useState<{ ratio: number; signal: { cancel: boolean }; exact?: boolean } | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
@@ -1000,15 +1001,28 @@ export function App() {
             const signal = { cancel: false };
             setExporting({ ratio: 0, signal });
             try {
-              const blob = await e.record(opts, (ratio) => setExporting({ ratio, signal }), signal);
+              const onProgress = (ratio: number) => setExporting({ ratio, signal, exact: !!opts.exact });
+              const t0 = performance.now();
+              let data: Uint8Array | null;
+              if (opts.exact) {
+                e.stop();
+                data = await exportExact(e, project, { format: opts.exact, from: opts.from, to: opts.to, scale: opts.scale, videoBitsPerSecond: opts.videoBitsPerSecond }, onProgress, signal);
+                e.seek(time);
+              } else {
+                const blob = await e.record(opts, onProgress, signal);
+                data = blob && new Uint8Array(await blob.arrayBuffer());
+              }
               setExporting(null);
-              if (!blob) return notify("내보내기를 멈췄어요.");
-              const ext = opts.mimeType.includes("mp4") ? "mp4" : "webm";
+              if (!data) return notify("내보내기를 멈췄어요.");
+              const ext = opts.exact ?? (opts.mimeType.includes("mp4") ? "mp4" : "webm");
+              const took = (performance.now() - t0) / 1000;
               const r = await window.suite.files.save({
                 defaultName: `${fileName}.${ext}`,
                 filters: [{ name: ext === "mp4" ? "MP4 영상" : "WebM 영상", extensions: [ext] }],
-                data: new Uint8Array(await blob.arrayBuffer()),
+                data,
               });
+              if (r.ok && opts.exact) notify(`영상을 저장했어요! ${took.toFixed(0)}초 걸렸어요 (영상 길이 ${(opts.to - opts.from).toFixed(0)}초). 프레임 빠짐 없이 정확하게 만들었어요.`);
+              else
               if (r.ok) notify("영상을 저장했어요! 유튜브, 디스코드에 바로 올릴 수 있어요.");
               else if (r.reason === "error") notify(`저장하지 못했어요. ${r.message ?? ""}`);
             } catch (err) {
@@ -1023,7 +1037,11 @@ export function App() {
         <div className="dialog-dim">
           <div className="dialog export-box">
             <h2>영상을 만들고 있어요… {Math.round(exporting.ratio * 100)}%</h2>
-            <p>처음부터 끝까지 재생하면서 녹화해요. 영상 길이만큼 걸려요. 다른 창으로 가려도 괜찮지만 이 창을 닫지 말아 주세요.</p>
+            <p>
+              {exporting.exact
+                ? "프레임을 하나씩 그려서 정확하게 만들어요. 컴퓨터가 빠르면 영상 길이보다 빨리 끝나요. 이 창을 닫지 말아 주세요."
+                : "처음부터 끝까지 재생하면서 녹화해요. 영상 길이만큼 걸려요. 다른 창으로 가려도 괜찮지만 이 창을 닫지 말아 주세요."}
+            </p>
             <div className="bar">
               <div style={{ width: `${exporting.ratio * 100}%` }} />
             </div>
@@ -1093,7 +1111,19 @@ function ExportDialog({
   onClose: () => void;
   onStart: (opts: Parameters<Engine["record"]>[0], fileName: string) => void;
 }) {
-  const formats = useMemo(exportFormats, []);
+  // 정확 내보내기(프레임마다 인코딩)를 먼저, 안 되는 PC 를 위해 실시간 녹화도 남겨 둔다
+  const formats = useMemo(
+    () => [
+      ...(canExportExact()
+        ? [
+            { label: "MP4 (H.264) · 정확하고 빠르게", mimeType: "exact:mp4" },
+            { label: "WebM (VP9) · 정확하고 빠르게", mimeType: "exact:webm" },
+          ]
+        : []),
+      ...exportFormats().map((f) => ({ ...f, label: `${f.label} · 실시간 녹화` })),
+    ],
+    [],
+  );
   const [format, setFormat] = useState(formats[0]?.mimeType ?? "");
   const [quality, setQuality] = useState<"high" | "medium" | "small">("high");
   const [scale, setScale] = useState(1);
@@ -1155,7 +1185,7 @@ function ExportDialog({
         <p className="export-summary">
           {timecode(to - from, project.sequence.fps)} · {project.sequence.fps}fps · {(bits / 1_000_000).toFixed(1)}Mbps · 약 {sizeMB < 1 ? "1MB 미만" : `${Math.round(sizeMB)}MB`}
           <br />
-          영상 길이만큼 재생하면서 만들어요.
+          {format.startsWith("exact:") ? "프레임을 하나씩 그려 정확하게 만들어요. 빠짐없이 매끄러워요." : "영상 길이만큼 재생하면서 만들어요."}
         </p>
         <div className="dialog-buttons">
           <button className="mini" onClick={onClose}>
@@ -1164,7 +1194,14 @@ function ExportDialog({
           <button
             className="mini go"
             disabled={!format || to - from < 0.1 || !fileName.trim()}
-            onClick={() => onStart({ mimeType: format, from, to, videoBitsPerSecond: bits, scale }, fileName.trim())}
+            onClick={() =>
+              onStart(
+                format.startsWith("exact:")
+                  ? { mimeType: format, exact: format.slice(6) as "mp4" | "webm", from, to, videoBitsPerSecond: bits, scale }
+                  : { mimeType: format, from, to, videoBitsPerSecond: bits, scale },
+                fileName.trim(),
+              )
+            }
           >
             내보내기
           </button>
