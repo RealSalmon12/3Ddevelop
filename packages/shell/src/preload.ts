@@ -14,6 +14,10 @@ export function exposeSuiteBridge(appId: string) {
     window: {
       setDirty: (dirty: boolean) => ipcRenderer.send(IPC.setDirty, dirty),
     },
+    autosave: {
+      read: () => ipcRenderer.invoke(IPC.autosaveRead),
+      write: (text: string | null) => ipcRenderer.invoke(IPC.autosaveWrite, text),
+    },
     files: {
       save: (request: SaveFileRequest) => ipcRenderer.invoke(IPC.fileSave, request),
       open: (request: OpenFileRequest) => ipcRenderer.invoke(IPC.fileOpen, request),

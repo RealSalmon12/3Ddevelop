@@ -77,6 +77,12 @@ export interface SuiteBridge {
     /** 저장하지 않은 변경이 있으면 true. 창을 닫을 때 한 번 더 물어본다. */
     setDirty(dirty: boolean): void;
   };
+  /** 갑자기 꺼졌을 때를 위한 자동 저장본. 앱마다 하나씩 디스크에 바로 쓴다. */
+  autosave: {
+    read(): Promise<{ time: number; text: string } | null>;
+    /** null 이면 지운다. */
+    write(text: string | null): Promise<void>;
+  };
   files: {
     save(request: SaveFileRequest): Promise<SaveFileResult>;
     open(request: OpenFileRequest): Promise<OpenFileResult>;
@@ -95,6 +101,8 @@ export const IPC = {
   fileSave: "suite:file-save",
   fileOpen: "suite:file-open",
   setDirty: "suite:set-dirty",
+  autosaveRead: "suite:autosave-read",
+  autosaveWrite: "suite:autosave-write",
   updateCheck: "suite:update-check",
   updateInstall: "suite:update-install",
   updateProgress: "suite:update-progress",
