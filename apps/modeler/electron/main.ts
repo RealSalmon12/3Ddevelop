@@ -6,4 +6,5 @@ startSuiteApp({
   title: "3D 모델러",
   preloadPath: path.join(__dirname, "preload.cjs"),
   indexHtmlPath: path.join(__dirname, "../dist/index.html"),
+  updates: { repo: "RealSalmon12/3Ddevelop", tagPrefix: "modeler-build-" },
 });

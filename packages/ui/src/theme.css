@@ -410,3 +410,45 @@ button { font: inherit; color: inherit; }
   border-radius: var(--radius);
   cursor: pointer;
 }
+
+/* ---------- 업데이트 ---------- */
+.suite-update { position: relative; }
+.suite-menubar-action.update {
+  margin-left: 6px;
+  color: var(--accent-ink);
+  background: var(--accent);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.suite-menubar-action.update:hover { background: var(--accent); color: var(--accent-ink); filter: brightness(1.08); }
+.suite-update-card {
+  position: absolute;
+  top: 38px;
+  right: 0;
+  z-index: 100;
+  width: 280px;
+  padding: 14px 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  animation: suite-pop 0.12s ease-out;
+}
+.suite-update-title { margin: 0 0 4px; font-weight: 700; color: var(--text); }
+.suite-update-note { margin: 0; font-size: 12px; line-height: 1.55; color: var(--text-dim); }
+.suite-update-warn { margin: 8px 0 0; font-size: 12px; color: var(--accent); }
+.suite-update-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+.suite-update-actions a { font-size: 12px; color: var(--text-dim); }
+.suite-update-go {
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+.suite-update-go:disabled { opacity: 0.4; cursor: default; }
+.suite-update-bar { height: 6px; margin: 10px 0; border-radius: 3px; background: var(--bg); overflow: hidden; }
+.suite-update-bar > div { height: 100%; background: var(--accent); transition: width 0.2s; }

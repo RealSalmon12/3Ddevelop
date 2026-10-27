@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
 import { readFile, writeFile } from "node:fs/promises";
 import { aiStatus, askAI, setApiKey } from "./ai";
+import { checkForUpdate, installUpdate, type UpdateSource } from "./updater";
 import {
   IPC,
   type AIRequest,
@@ -20,6 +21,8 @@ export interface SuiteAppOptions {
   /** 빌드된 index.html 의 절대 경로 (개발 중에는 VITE_DEV_SERVER_URL 을 쓴다) */
   indexHtmlPath: string;
   backgroundColor?: string;
+  /** 새 버전을 찾을 곳. 없으면 업데이트 확인은 늘 "최신" 이라고 답한다. */
+  updates?: UpdateSource;
 }
 
 async function handleSaveFile(event: IpcMainInvokeEvent, request: SaveFileRequest): Promise<SaveFileResult> {
@@ -119,6 +122,10 @@ export function startSuiteApp(options: SuiteAppOptions) {
   ipcMain.handle(IPC.aiSetKey, (_event, key: string) => setApiKey(key));
   ipcMain.handle(IPC.fileSave, handleSaveFile);
   ipcMain.handle(IPC.fileOpen, handleOpenFile);
+  ipcMain.handle(IPC.updateCheck, () =>
+    options.updates ? checkForUpdate(options.updates) : { ok: true, current: 0, update: null, dev: true },
+  );
+  ipcMain.handle(IPC.updateInstall, (event) => installUpdate(BrowserWindow.fromWebContents(event.sender)!));
 
   app.whenReady().then(() => {
     const win = createWindow(options);

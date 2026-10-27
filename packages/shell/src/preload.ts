@@ -18,6 +18,18 @@ export function exposeSuiteBridge(appId: string) {
       save: (request: SaveFileRequest) => ipcRenderer.invoke(IPC.fileSave, request),
       open: (request: OpenFileRequest) => ipcRenderer.invoke(IPC.fileOpen, request),
     },
+    updates: {
+      check: () => ipcRenderer.invoke(IPC.updateCheck),
+      install: async (onProgress: (ratio: number) => void) => {
+        const listener = (_event: unknown, ratio: number) => onProgress(ratio);
+        ipcRenderer.on(IPC.updateProgress, listener);
+        try {
+          return await ipcRenderer.invoke(IPC.updateInstall);
+        } finally {
+          ipcRenderer.removeListener(IPC.updateProgress, listener);
+        }
+      },
+    },
   };
   contextBridge.exposeInMainWorld("suite", bridge);
 }

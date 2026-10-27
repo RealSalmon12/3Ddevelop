@@ -38,6 +38,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # 버전 끝자리를 빌드 번호로 맞춰서, 설치한 프로그램이 자기보다 새 릴리스를 알아볼 수 있게 한다.
+      - name: 버전에 빌드 번호 넣기
+        shell: bash
+        run: npm pkg set version=0.1.${{ github.run_number }} -w @suite/modeler
       - run: npm run dist:modeler
       - uses: actions/upload-artifact@v4
         with:
