@@ -11,7 +11,8 @@ import { api, guildId, sameName, token } from "./api.mjs";
 import { GUIDES } from "./guides.mjs";
 import { VERIFY_CHANNEL, VERIFY_EMOJI, grantVerified } from "./verify.mjs";
 
-const SERVER_NAME = "바코 스튜디오";
+// 서버 주인이 정한 이름. 바꾸고 싶으면 여기만 고치면 된다.
+const SERVER_NAME = "바코 커뮤니티";
 const BOT_NAME = "바코";
 const ICON = new URL("./assets/walrus.png", import.meta.url);
 
