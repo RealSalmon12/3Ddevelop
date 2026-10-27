@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PixelDoc } from "./doc/PixelDoc";
 import { adjustHsl, resizeCanvas, scaleNearest } from "./doc/raster";
-import { sheetLayout, type ExportOptions } from "./useFile";
+import { exportFrames, sheetLayout, type ExportOptions } from "./useFile";
 
 function useEscape(onClose: () => void) {
   useEffect(() => {
@@ -15,7 +15,7 @@ function useEscape(onClose: () => void) {
 export function ExportDialog({ doc, initial, onExport, onClose }: { doc: PixelDoc; initial: ExportOptions; onExport: (o: ExportOptions) => void; onClose: () => void }) {
   const [o, setO] = useState<ExportOptions>(initial);
   useEscape(onClose);
-  const n = doc.frames.length;
+  const n = exportFrames(doc, o).length;
   const flip = [2, 4, 8].find((k) => k * k >= n) ?? 8;
   const L = sheetLayout(doc, o);
   const outW = o.kind === "sheet" ? L.width : doc.width * o.scale;
@@ -48,6 +48,19 @@ export function ExportDialog({ doc, initial, onExport, onClose }: { doc: PixelDo
             ))}
           </select>
         </label>
+        {o.kind !== "png" && doc.tags.length > 0 && (
+          <label className="form-row">
+            <span>프레임</span>
+            <select value={o.tag ?? -1} onChange={(e) => setO({ ...o, tag: Number(e.target.value) < 0 ? null : Number(e.target.value) })}>
+              <option value={-1}>전체 ({doc.frames.length}프레임)</option>
+              {doc.tags.map((t, i) => (
+                <option key={i} value={i}>
+                  🏷 {t.name} ({t.from + 1}~{t.to + 1})
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {o.kind === "sheet" && (
           <>
             <label className="form-row">

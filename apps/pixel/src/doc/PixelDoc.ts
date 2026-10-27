@@ -22,6 +22,20 @@ export interface Frame {
   duration: number;
 }
 
+export type TagDirection = "forward" | "reverse" | "pingpong";
+
+/** 에이스프라이트의 태그: 프레임 몇 장에 이름을 붙여 ‘걷기’, ‘점프’ 같은 동작을 나눈다 */
+export interface Tag {
+  name: string;
+  /** 첫 프레임과 끝 프레임 (둘 다 포함, 0부터) */
+  from: number;
+  to: number;
+  color: string;
+  direction: TagDirection;
+}
+
+export const TAG_COLORS = ["#ff6b6b", "#ffc83d", "#7fe0a8", "#4fb3ff", "#c792ea", "#ff8a65", "#5ce1e6", "#a5d65a"];
+
 export interface LayerInfo {
   id: number;
   name: string;
@@ -35,6 +49,7 @@ export interface DocSnapshot {
   height: number;
   layers: LayerInfo[];
   frames: Frame[];
+  tags: Tag[];
   /** 지금 그리는 레이어의 순서 번호 (0 이 맨 아래) */
   active: number;
   frame: number;
@@ -55,6 +70,7 @@ interface HistoryEntry {
   frame: number;
   revision: number;
   frames: Frame[];
+  tags: Tag[];
   palette: string[];
   layers: { id: number; name: string; visible: boolean; opacity: number; locked: boolean; cels: Uint8ClampedArray<ArrayBuffer>[] }[];
   bytes: number;
@@ -78,6 +94,7 @@ interface SavedFileV2 {
   frame: number;
   palette: string[];
   frames: Frame[];
+  tags?: Tag[];
   layers: { name: string; visible: boolean; opacity: number; locked: boolean; cels: string[] }[];
 }
 
@@ -115,6 +132,7 @@ export class PixelDoc {
   height = 32;
   layers: Layer[] = [];
   frames: Frame[] = [];
+  tags: Tag[] = [];
   active = 0;
   frame = 0;
   palette: string[] = [...DEFAULT_PALETTE];
@@ -148,6 +166,7 @@ export class PixelDoc {
       height: this.height,
       layers: this.layers.map(({ id, name, visible, opacity, locked }) => ({ id, name, visible, opacity, locked })),
       frames: this.frames.map((f) => ({ ...f })),
+      tags: this.tags.map((t) => ({ ...t })),
       active: this.active,
       frame: this.frame,
       palette: this.palette,
@@ -180,6 +199,7 @@ export class PixelDoc {
       frame: this.frame,
       revision: this.revision,
       frames: this.frames.map((f) => ({ ...f })),
+      tags: this.tags.map((t) => ({ ...t })),
       palette: this.palette,
       layers,
       bytes,
@@ -194,6 +214,7 @@ export class PixelDoc {
     this.frame = entry.frame;
     this.revision = entry.revision;
     this.frames = entry.frames.map((f) => ({ ...f }));
+    this.tags = entry.tags.map((t) => ({ ...t }));
     this.palette = entry.palette;
     this.layers = entry.layers.map((l) => ({
       id: l.id,
@@ -402,6 +423,12 @@ export class PixelDoc {
     return this.change(() => {
       const at = this.frame + 1;
       this.frames.splice(at, 0, { duration: this.frames[this.frame].duration });
+      // 태그 안에서 늘리면 태그도 늘어나고, 뒤에 있는 태그는 한 칸씩 밀린다
+      for (const t of this.tags) {
+        if (t.from >= at) t.from++;
+        if (t.to >= at - 1 && t.from <= at - 1) t.to++;
+        else if (t.to >= at) t.to++;
+      }
       for (const l of this.layers) {
         const r = createRaster(this.width, this.height);
         if (copy) r.data.set(l.cels[this.frame].data);
@@ -416,6 +443,11 @@ export class PixelDoc {
     return this.change(() => {
       this.frames.splice(index, 1);
       for (const l of this.layers) l.cels.splice(index, 1);
+      for (const t of this.tags) {
+        if (t.from > index) t.from--;
+        if (t.to >= index) t.to--;
+      }
+      this.tags = this.tags.filter((t) => t.to >= t.from);
       this.frame = Math.min(this.frame, this.frames.length - 1);
     });
   }
@@ -440,6 +472,48 @@ export class PixelDoc {
       if (index === null) this.frames.forEach((f) => (f.duration = d));
       else this.frames[index].duration = d;
     });
+  }
+
+  // ---------- 태그 ----------
+  addTag(from: number, to: number, name = `태그 ${this.tags.length + 1}`, color = TAG_COLORS[this.tags.length % TAG_COLORS.length], direction: TagDirection = "forward") {
+    const last = this.frames.length - 1;
+    const a = Math.max(0, Math.min(last, Math.min(from, to)));
+    const b = Math.max(0, Math.min(last, Math.max(from, to)));
+    this.change(() => {
+      this.tags.push({ name, from: a, to: b, color, direction });
+    });
+    return this.tags.length - 1;
+  }
+
+  updateTag(index: number, patch: Partial<Tag>) {
+    const t = this.tags[index];
+    if (!t) return;
+    const last = this.frames.length - 1;
+    const next = { ...t, ...patch };
+    next.from = Math.max(0, Math.min(last, next.from));
+    next.to = Math.max(next.from, Math.min(last, next.to));
+    this.change(() => {
+      this.tags[index] = next;
+    });
+  }
+
+  removeTag(index: number) {
+    if (!this.tags[index]) return;
+    this.change(() => {
+      this.tags.splice(index, 1);
+    });
+  }
+
+  /** 재생할 프레임 순서. tag 가 없으면 전체를 앞으로 */
+  sequence(tag: number | null = null): number[] {
+    const t = tag === null ? undefined : this.tags[tag];
+    const from = t ? t.from : 0;
+    const to = t ? Math.min(t.to, this.frames.length - 1) : this.frames.length - 1;
+    const fwd = Array.from({ length: to - from + 1 }, (_, i) => from + i);
+    if (!t || t.direction === "forward") return fwd;
+    if (t.direction === "reverse") return fwd.reverse();
+    // 왕복: 1 2 3 2 (끝을 두 번 보여 주지 않는다)
+    return fwd.length > 2 ? [...fwd, ...fwd.slice(1, -1).reverse()] : fwd;
   }
 
   // ---------- 팔레트 ----------
@@ -511,6 +585,7 @@ export class PixelDoc {
     this.height = height;
     this.nextId = 1;
     this.frames = [{ duration: DEFAULT_DURATION }];
+    this.tags = [];
     this.layers = [this.makeLayer("레이어 1")];
     this.active = 0;
     this.frame = 0;
@@ -536,6 +611,7 @@ export class PixelDoc {
       frame: this.frame,
       palette: this.palette,
       frames: this.frames,
+      tags: this.tags,
       layers: this.layers.map((l) => ({ name: l.name, visible: l.visible, opacity: l.opacity, locked: l.locked, cels: l.cels.map((c) => toBase64(c.data)) })),
     };
     return JSON.stringify(file);
@@ -556,6 +632,16 @@ export class PixelDoc {
     if (file.version === 2) {
       this.frames = file.frames.length ? file.frames.map((f) => ({ duration: f.duration || DEFAULT_DURATION })) : [{ duration: DEFAULT_DURATION }];
       if (Array.isArray(file.palette) && file.palette.length) this.palette = file.palette.filter((c) => typeof c === "string");
+      const last = this.frames.length - 1;
+      this.tags = (Array.isArray(file.tags) ? file.tags : [])
+        .filter((t) => t && typeof t.from === "number" && typeof t.to === "number" && t.from <= t.to && t.from <= last)
+        .map((t, i) => ({
+          name: String(t.name ?? `태그 ${i + 1}`),
+          from: t.from,
+          to: Math.min(t.to, last),
+          color: typeof t.color === "string" ? t.color : TAG_COLORS[i % TAG_COLORS.length],
+          direction: t.direction === "reverse" || t.direction === "pingpong" ? t.direction : "forward",
+        }));
       this.layers = file.layers.map((l) => {
         const layer = this.makeLayer(l.name);
         layer.visible = l.visible !== false;

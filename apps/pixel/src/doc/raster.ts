@@ -366,3 +366,69 @@ export function usedColors(rasters: Raster[], limit = 256): string[] {
     .slice(0, limit)
     .map(([k]) => `#${k.toString(16).padStart(6, "0")}`);
 }
+
+/* ───────── 그라디언트, 글자 ───────── */
+
+const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+
+export type GradientShape = "linear" | "radial";
+
+/**
+ * (x0,y0) 에서 (x1,y1) 쪽으로 c0 → c1 그라디언트. dither 면 4×4 바이어 무늬로 두 색만 써서 픽셀 아트답게,
+ * 아니면 사이 색을 섞는다. 반투명 색은 원래 그림 위에 겹친다. mask 가 있으면 고른 칸에만.
+ */
+export function gradientFill(r: Raster, mask: Uint8Array | null, x0: number, y0: number, x1: number, y1: number, c0: RGBA, c1: RGBA, shape: GradientShape, dither: boolean) {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const len2 = Math.max(1e-6, dx * dx + dy * dy);
+  const out = [0, 0, 0, 0];
+  for (let y = 0; y < r.height; y++)
+    for (let x = 0; x < r.width; x++) {
+      if (mask && !mask[y * r.width + x]) continue;
+      let t = shape === "linear" ? ((x - x0) * dx + (y - y0) * dy) / len2 : Math.sqrt(((x - x0) ** 2 + (y - y0) ** 2) / len2);
+      t = Math.max(0, Math.min(1, t));
+      if (dither) {
+        const c = t > (BAYER4[(y & 3) * 4 + (x & 3)] + 0.5) / 16 ? c1 : c0;
+        out[0] = c[0];
+        out[1] = c[1];
+        out[2] = c[2];
+        out[3] = c[3];
+      } else for (let k = 0; k < 4; k++) out[k] = Math.round(c0[k] + (c1[k] - c0[k]) * t);
+      const i = (y * r.width + x) * 4;
+      const sa = out[3] / 255;
+      if (sa === 0) continue;
+      const da = r.data[i + 3] / 255;
+      const oa = sa + da * (1 - sa);
+      for (let k = 0; k < 3; k++) r.data[i + k] = (out[k] * sa + r.data[i + k] * da * (1 - sa)) / oa;
+      r.data[i + 3] = oa * 255;
+    }
+}
+
+export interface TextStamp {
+  width: number;
+  height: number;
+  /** 1 이면 칠할 칸 */
+  mask: Uint8Array;
+}
+
+/** 글자를 칸으로 바꾼다. 흐린 가장자리는 반 넘게 찬 칸만 남겨서 또렷하게 */
+export function textStamp(text: string, size: number, bold: boolean): TextStamp {
+  const c = document.createElement("canvas");
+  const g = c.getContext("2d", { willReadFrequently: true })!;
+  const font = `${bold ? "bold " : ""}${size}px "Malgun Gothic", "Segoe UI", "Noto Sans KR", sans-serif`;
+  g.font = font;
+  const lines = text.split("\n");
+  const lineH = Math.ceil(size * 1.25);
+  const width = Math.max(1, Math.ceil(Math.max(...lines.map((l) => g.measureText(l).width))));
+  const height = Math.max(1, lineH * lines.length);
+  c.width = width;
+  c.height = height;
+  g.font = font;
+  g.textBaseline = "top";
+  g.fillStyle = "#000";
+  lines.forEach((l, i) => g.fillText(l, 0, i * lineH));
+  const data = g.getImageData(0, 0, width, height).data;
+  const mask = new Uint8Array(width * height);
+  for (let i = 0; i < mask.length; i++) mask[i] = data[i * 4 + 3] >= 100 ? 1 : 0;
+  return { width, height, mask };
+}
