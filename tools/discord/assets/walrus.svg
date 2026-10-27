@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a3150"/>
+      <stop offset="1" stop-color="#171b27"/>
+    </linearGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c9a2ff"/>
+      <stop offset="1" stop-color="#9a7bf0"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- 빙산 -->
+  <path d="M0 430 L120 360 L210 400 L300 350 L420 395 L512 370 L512 512 L0 512 Z" fill="#8fd3ff" opacity="0.35"/>
+  <!-- 머리 -->
+  <ellipse cx="256" cy="270" rx="170" ry="155" fill="url(#skin)"/>
+  <!-- 눈 -->
+  <circle cx="196" cy="225" r="20" fill="#171b27"/>
+  <circle cx="316" cy="225" r="20" fill="#171b27"/>
+  <circle cx="203" cy="218" r="7" fill="#fff"/>
+  <circle cx="323" cy="218" r="7" fill="#fff"/>
+  <!-- 볼 -->
+  <circle cx="160" cy="275" r="18" fill="#ff8fb3" opacity="0.6"/>
+  <circle cx="352" cy="275" r="18" fill="#ff8fb3" opacity="0.6"/>
+  <!-- 엄니 -->
+  <path d="M222 330 Q214 410 232 440 Q248 400 246 330 Z" fill="#fff8e6"/>
+  <path d="M290 330 Q298 410 280 440 Q264 400 266 330 Z" fill="#fff8e6"/>
+  <!-- 주둥이 -->
+  <ellipse cx="222" cy="305" rx="48" ry="38" fill="#e2ccff"/>
+  <ellipse cx="290" cy="305" rx="48" ry="38" fill="#e2ccff"/>
+  <ellipse cx="256" cy="278" rx="20" ry="14" fill="#171b27"/>
+  <!-- 수염 점 -->
+  <g fill="#9a7bf0">
+    <circle cx="200" cy="300" r="4"/><circle cx="218" cy="314" r="4"/><circle cx="198" cy="322" r="4"/>
+    <circle cx="312" cy="300" r="4"/><circle cx="294" cy="314" r="4"/><circle cx="314" cy="322" r="4"/>
+  </g>
+  <!-- 해바라기색 반짝임 -->
+  <path d="M410 96 l10 24 l24 10 l-24 10 l-10 24 l-10 -24 l-24 -10 l24 -10 Z" fill="#ffc83d"/>
+</svg>
