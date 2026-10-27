@@ -62,9 +62,12 @@ export const SUITE_APPS: SuiteApp[] = [
     id: "sound",
     name: "소리 편집기",
     tagline: "효과음, 배경 음악",
-    description: "녹음한 소리를 자르고 이어 붙여서 게임 효과음과 배경 음악을 만들어요.",
+    description: "녹음하고 자르고 이어 붙이고, 버튼 하나로 동전·점프·폭발 같은 게임 효과음을 만들어요.",
     likeness: "오디션처럼",
     color: "#5fd3a0",
+    tagPrefix: "sound-build-",
+    guid: "22262d3a-24b7-547f-84e0-7943ce5aba1c",
+    executable: "NugunaSound.exe",
   },
   {
     id: "video",

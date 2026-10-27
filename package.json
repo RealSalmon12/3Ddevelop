@@ -11,16 +11,19 @@
     "dev:modeler": "npm run dev -w @suite/modeler",
     "dev:pixel": "npm run dev -w @suite/pixel",
     "dev:photo": "npm run dev -w @suite/photo",
+    "dev:sound": "npm run dev -w @suite/sound",
     "build:hub": "npm run build -w @suite/hub",
     "build:modeler": "npm run build -w @suite/modeler",
     "build:pixel": "npm run build -w @suite/pixel",
     "build:photo": "npm run build -w @suite/photo",
-    "build": "npm run build:hub && npm run build:modeler && npm run build:pixel && npm run build:photo",
-    "typecheck": "tsc -p packages/ui && tsc -p packages/shell && tsc -p apps/hub && tsc -p apps/modeler && tsc -p apps/pixel && tsc -p apps/photo",
+    "build:sound": "npm run build -w @suite/sound",
+    "build": "npm run build:hub && npm run build:modeler && npm run build:pixel && npm run build:photo && npm run build:sound",
+    "typecheck": "tsc -p packages/ui && tsc -p packages/shell && tsc -p apps/hub && tsc -p apps/modeler && tsc -p apps/pixel && tsc -p apps/photo && tsc -p apps/sound",
     "dist:hub": "npm run dist -w @suite/hub",
     "dist:modeler": "npm run dist -w @suite/modeler",
     "dist:pixel": "npm run dist -w @suite/pixel",
-    "dist:photo": "npm run dist -w @suite/photo"
+    "dist:photo": "npm run dist -w @suite/photo",
+    "dist:sound": "npm run dist -w @suite/sound"
   },
   "devDependencies": {
     "typescript": "~5.9.3"

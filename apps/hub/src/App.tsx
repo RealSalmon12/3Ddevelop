@@ -6,9 +6,10 @@ import hubIcon from "./icons/hub.png";
 import modelerIcon from "./icons/modeler.png";
 import photoIcon from "./icons/photo.png";
 import pixelIcon from "./icons/pixel.png";
+import soundIcon from "./icons/sound.png";
 import { AIKeyCard } from "./AIKeyCard";
 
-const ICONS: Record<string, string> = { modeler: modelerIcon, pixel: pixelIcon, photo: photoIcon };
+const ICONS: Record<string, string> = { modeler: modelerIcon, pixel: pixelIcon, photo: photoIcon, sound: soundIcon };
 
 type Busy = { id: string; ratio: number };
 
