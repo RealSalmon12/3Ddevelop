@@ -7,11 +7,21 @@ export interface AIRequest {
   prompt: string;
   /** 앱이 함께 보내는 현재 상태 (예: 장면에 있는 오브젝트 목록) */
   context?: unknown;
+  /** 앞서 나눈 대화. "지붕을 더 높게" 처럼 이어서 고칠 때 필요하다. */
+  history?: { role: "user" | "assistant"; text: string }[];
+  /** 앱이 AI 에게 주는 역할 설명 */
+  system?: string;
+  /** AI 가 반드시 이 모양으로 답하게 한다 (예: 장면 바꾸기 명령) */
+  tool?: { name: string; description: string; input_schema: Record<string, unknown> };
 }
 
 export type AIResponse =
-  | { ok: true; text: string }
+  | { ok: true; text: string; toolInput?: unknown }
   | { ok: false; reason: "not-configured" | "error"; message: string };
+
+export interface AIStatus {
+  configured: boolean;
+}
 
 export interface FileFilter {
   /** 파일 종류 이름 (예: "3D 모델러 프로젝트") */
@@ -43,6 +53,9 @@ export interface SuiteBridge {
   platform: string;
   ai: {
     ask(request: AIRequest): Promise<AIResponse>;
+    status(): Promise<AIStatus>;
+    /** 빈 문자열이면 지운다. */
+    setApiKey(key: string): Promise<AIStatus>;
   };
   window: {
     /** 저장하지 않은 변경이 있으면 true. 창을 닫을 때 한 번 더 물어본다. */
@@ -56,6 +69,8 @@ export interface SuiteBridge {
 
 export const IPC = {
   aiAsk: "suite:ai-ask",
+  aiStatus: "suite:ai-status",
+  aiSetKey: "suite:ai-set-key",
   fileSave: "suite:file-save",
   fileOpen: "suite:file-open",
   setDirty: "suite:set-dirty",

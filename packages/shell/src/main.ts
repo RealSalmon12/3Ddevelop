@@ -1,9 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
 import { readFile, writeFile } from "node:fs/promises";
+import { aiStatus, askAI, setApiKey } from "./ai";
 import {
   IPC,
   type AIRequest,
-  type AIResponse,
   type OpenFileRequest,
   type OpenFileResult,
   type SaveFileRequest,
@@ -20,15 +20,6 @@ export interface SuiteAppOptions {
   /** 빌드된 index.html 의 절대 경로 (개발 중에는 VITE_DEV_SERVER_URL 을 쓴다) */
   indexHtmlPath: string;
   backgroundColor?: string;
-}
-
-/** AI 요청 처리. 실제 모델 연결은 AI 모델링 단계에서 이 함수만 바꾸면 된다. */
-async function handleAIRequest(_request: AIRequest): Promise<AIResponse> {
-  return {
-    ok: false,
-    reason: "not-configured",
-    message: "AI 기능은 아직 준비 중이에요. 곧 글로 설명하면 모델을 만들어 주는 기능이 들어갈 거예요.",
-  };
 }
 
 async function handleSaveFile(event: IpcMainInvokeEvent, request: SaveFileRequest): Promise<SaveFileResult> {
@@ -123,7 +114,9 @@ export function startSuiteApp(options: SuiteAppOptions) {
     return;
   }
 
-  ipcMain.handle(IPC.aiAsk, (_event, request: AIRequest) => handleAIRequest(request));
+  ipcMain.handle(IPC.aiAsk, (_event, request: AIRequest) => askAI(request));
+  ipcMain.handle(IPC.aiStatus, () => aiStatus());
+  ipcMain.handle(IPC.aiSetKey, (_event, key: string) => setApiKey(key));
   ipcMain.handle(IPC.fileSave, handleSaveFile);
   ipcMain.handle(IPC.fileOpen, handleOpenFile);
 
