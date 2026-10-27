@@ -44,16 +44,16 @@ const TOOLS: (Tool & { id: ToolId })[] = [
 ];
 
 const HINTS: Record<ToolId, string> = {
-  select: "클릭: 선택 · 왼쪽 드래그: 돌려보기 · 오른쪽 드래그: 화면 이동 · 휠: 확대/축소 · F3: 기능 검색",
+  select: "클릭: 선택 · 왼쪽 드래그: 박스 선택 · 휠 버튼 드래그: 돌려보기 · 오른쪽 드래그: 화면 이동 · F3: 기능 검색",
   move: "화살표를 끌어 옮겨요 · G 를 누르면 마우스로 바로 옮겨요 · Shift+A: 추가 · F3: 기능 검색",
   rotate: "고리를 끌어 돌려요 · R 을 누르면 마우스로 바로 돌려요 · F3: 기능 검색",
   scale: "손잡이를 끌어 크기를 바꿔요 · S 를 누르면 마우스로 바로 늘려요 · F3: 기능 검색",
 };
 
 const EDIT_HINTS: Record<SelectMode, string> = {
-  vertex: "점 클릭: 고르기 · Shift+클릭: 여러 개 · A: 모두 · G/R/S: 옮기기/돌리기/늘리기 · Tab: 편집 끝내기",
-  edge: "선 클릭: 고르기 · Shift+클릭: 여러 개 · A: 모두 · G/R/S: 옮기기/돌리기/늘리기 · Tab: 편집 끝내기",
-  face: "면 클릭: 고르기 · Shift+클릭: 여러 개 · E: 돌출 · I: 안쪽 면 · G/R/S: 옮기기/돌리기/늘리기 · Tab: 편집 끝내기",
+  vertex: "점 클릭: 고르기 · Shift+클릭: 여러 개 · Alt+클릭: 한 줄 · B: 박스 · G/R/S: 옮기기/돌리기/늘리기 · Tab: 끝내기",
+  edge: "선 클릭: 고르기 · Alt+클릭: 한 줄 · Ctrl+R: 루프 컷 · B: 박스 · G/R/S: 옮기기/돌리기/늘리기 · Tab: 끝내기",
+  face: "면 클릭: 고르기 · Alt+클릭: 한 바퀴 · E: 돌출 · I: 안쪽 면 · B: 박스 · G/R/S: 옮기기/돌리기/늘리기 · Tab: 끝내기",
 };
 
 const SHADINGS: Shading[] = ["solid", "wire", "xray"];
@@ -83,7 +83,8 @@ X·Delete 지우기 · Shift+D 복제해서 옮기기 · Ctrl+D 복제 · Ctrl+M
 H 숨기기 · Shift+H 고른 것만 보기 · Alt+H 모두 보이기 · Z 보기 방식 (솔리드/와이어/X-ray)
 숫자패드 1/3/7 앞/옆/위 (Ctrl 누르면 반대쪽) · 5 원근/평면 · 2/4/6/8 돌려 보기 · 9 반대편
 Ctrl+Z 되돌리기 · Ctrl+Y 다시 실행 · Ctrl+S 저장 · Home 처음 시점 · . 선택한 것 가운데로
-Tab 편집 모드 · 1/2/3 점/선/면 · A 모두 고르기 · E 돌출 · I 안쪽 면 · M 합치기`;
+Ctrl+1/2/3 매끈하게 (서브디비전) · Ctrl+0 매끈하게 끄기 · B 박스 선택
+Tab 편집 모드 · 1/2/3 점/선/면 · A 모두 고르기 · Alt+클릭 한 줄 고르기 · E 돌출 · I 안쪽 면 · Ctrl+R 루프 컷 · M 합치기`;
 
 const SHORTCUTS: Record<string, ToolId> = { q: "select", w: "move", e: "rotate", t: "scale" };
 const MODAL_KEYS = { g: "grab", r: "rotate", s: "scale" } as const;
@@ -111,6 +112,9 @@ export function App() {
   const [search, setSearch] = useState<null | { kind: "all" } | { kind: "add"; at: { x: number; y: number } }>(null);
   const [toast, notify] = useToast(4500);
   const needFaces = "먼저 면을 골라 주세요. 위에서 ‘면’을 누르고 면을 클릭하면 돼요.";
+  const needEdge = "자를 방향의 선을 하나 골라 주세요. 위에서 ‘선’을 누르고, 가로질러 자를 선을 클릭하면 돼요. (사각형 면이 이어진 곳만 잘려요)";
+  const setSubdivision = (level: number) =>
+    model.setSubdivision(level) ? notify(level ? `매끈하게 ${level}단계` : "매끈하게 끔") : notify("먼저 매끈하게 할 오브젝트를 골라 주세요.");
   const file = useProjectFile(model, dirty, notify);
   const tour = useTour("modeler");
   const updater = useUpdater(notify);
@@ -155,6 +159,7 @@ export function App() {
     { label: "돌출", icon: "⬆", hint: "고른 면을 바깥으로 밀어내며 벽을 세워요. E 키로 하면 마우스로 높이를 정해요", shortcut: "E", onRun: () => model.extrude() || notify(needFaces) },
     { label: "안쪽 면", icon: "▣", hint: "고른 면 안쪽에 작은 면을 만들어요", shortcut: "I", onRun: () => model.inset() || notify(needFaces) },
     { label: "세분화", icon: "⊞", hint: "고른 면을 더 작은 면으로 나눠요", onRun: () => model.subdivide() || notify(needFaces) },
+    { label: "루프 컷", icon: "⫼", hint: "고른 선을 가로지르는 고리 모양의 면들을 한 줄 잘라요. 선을 하나 골라 주세요", shortcut: "Ctrl+R", onRun: () => model.loopCut() || notify(needEdge) },
     { label: "모서리 깎기", icon: "◇", hint: "모든 모서리를 비스듬히 깎아요. 여러 번 하면 둥글어져요", shortcut: "Ctrl+B", onRun: () => model.bevel() || notify("구멍 없이 닫힌 모양에서만 깎을 수 있어요. 편집 모드에서 써 주세요.") },
     { label: "합치기", icon: "⊙", hint: "고른 점들을 한 점으로 합쳐요", shortcut: "M", onRun: () => model.merge() || notify("합칠 점을 두 개 이상 골라 주세요.") },
     { label: "뒤집기", icon: "⇅", hint: "고른 면의 앞뒤를 바꿔요", onRun: () => model.flip() || notify(needFaces) },
@@ -204,7 +209,14 @@ export function App() {
           d: () => model.duplicateSelected(),
           m: () => void (model.mirrorSelected() || notify("먼저 대칭으로 복제할 오브젝트를 골라 주세요.")),
           b: () => void (model.bevel() || notify("구멍 없이 닫힌 모양에서만 깎을 수 있어요. 편집 모드에서 써 주세요.")),
+          r: () => void (model.getSnapshot().edit ? model.loopCut() || notify(needEdge) : notify("루프 컷은 편집 모드(Tab)에서 써요.")),
         };
+        // Ctrl+0~3: 매끈하게 단계 (블렌더의 서브디비전 단축키)
+        const digit = /^Digit([0-3])$/.exec(e.code);
+        if (digit) {
+          e.preventDefault();
+          return setSubdivision(Number(digit[1]));
+        }
         if (actions[key]) {
           e.preventDefault();
           actions[key]();
@@ -241,6 +253,7 @@ export function App() {
         if (key === "h" && !editing) return void (model.hideSelected(true) || notify("먼저 남겨 둘 오브젝트를 골라 주세요."));
         return;
       }
+      if (key === "b") return viewport?.beginBoxSelect();
       if (MODAL_KEYS[key as keyof typeof MODAL_KEYS]) return startModal(MODAL_KEYS[key as keyof typeof MODAL_KEYS]);
       if (SHORTCUTS[key]) setTool(SHORTCUTS[key]);
       else if (key === "delete" || key === "x") model.removeSelected();
@@ -287,6 +300,11 @@ export function App() {
         { label: "복제해서 옮기기", shortcut: "Shift+D", disabled: !selected || !!edit, onSelect: duplicateModal },
         { label: "좌우 대칭 복제 (팔, 다리, 눈 짝 만들기)", shortcut: "Ctrl+M", disabled: !selected, onSelect: () => model.mirrorSelected() },
         { label: "지우기", shortcut: "Delete", disabled: !selected, onSelect: () => model.removeSelected() },
+        { label: "루프 컷 (편집 모드)", shortcut: "Ctrl+R", disabled: !edit, onSelect: () => model.loopCut() || notify(needEdge) },
+        { label: "박스 선택", shortcut: "B", onSelect: () => viewport?.beginBoxSelect() },
+        ...[1, 2, 3].map((n) => ({ label: `매끈하게 ${n}단계 (서브디비전)`, shortcut: `Ctrl+${n}`, disabled: !selected || selected.kind === "effect", onSelect: () => setSubdivision(n) })),
+        { label: "매끈하게 끄기", shortcut: "Ctrl+0", disabled: !selected?.subdivision, onSelect: () => setSubdivision(0) },
+        { label: "매끈하게를 모양에 적용 (점 하나하나 고치기)", disabled: !selected?.subdivision, onSelect: () => model.applySubdivision() },
         { label: "숨기기", shortcut: "H", disabled: !selected || !!edit, onSelect: () => model.hideSelected() },
         { label: "고른 것만 보기 (나머지 숨기기)", shortcut: "Shift+H", disabled: !selected || !!edit, onSelect: () => model.hideSelected(true) },
         { label: "숨긴 것 모두 보이기", shortcut: "Alt+H", disabled: !items.some((i) => i.hidden), onSelect: () => model.unhideAll() },

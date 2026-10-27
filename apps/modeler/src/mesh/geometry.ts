@@ -2,20 +2,21 @@ import * as THREE from "three";
 import { dot, faceNormal, type PolyMesh, type Vec3 } from "./PolyMesh";
 
 /** 이 각도보다 완만하게 꺾인 면끼리는 부드럽게 이어 보이게 한다 (구, 원기둥 옆면 등). */
-const SMOOTH_ANGLE = (40 * Math.PI) / 180;
+export const AUTO_SMOOTH_DEGREES = 40;
 
 /**
  * PolyMesh 를 three.js 가 그릴 수 있는 삼각형 묶음으로 바꾼다.
  * userData.triangleFace[t] 는 t 번째 삼각형이 원래 몇 번 면인지 (편집 모드에서 클릭한 면 찾기에 쓴다).
  */
-export function buildGeometry(mesh: PolyMesh): THREE.BufferGeometry {
+export function buildGeometry(mesh: PolyMesh, smoothDegrees = AUTO_SMOOTH_DEGREES): THREE.BufferGeometry {
   const normals = mesh.faces.map((face) => faceNormal(mesh, face));
 
   // 점마다 그 점을 쓰는 면 목록
   const facesAt: number[][] = mesh.vertices.map(() => []);
   mesh.faces.forEach((face, f) => face.forEach((v) => facesAt[v].push(f)));
 
-  const cosLimit = Math.cos(SMOOTH_ANGLE);
+  // 0 도면 모든 면이 각지게, 180 도면 모두 부드럽게 이어 보인다.
+  const cosLimit = smoothDegrees >= 180 ? -2 : Math.cos((smoothDegrees * Math.PI) / 180);
   const cornerNormal = (f: number, v: number): Vec3 => {
     const n: Vec3 = [0, 0, 0];
     for (const g of facesAt[v]) {

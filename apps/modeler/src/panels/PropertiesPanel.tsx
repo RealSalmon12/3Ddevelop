@@ -1,9 +1,9 @@
 import { SURFACES, type Surface } from "../scene/materials";
 import { useEffect, useRef, useState } from "react";
 import type * as THREE from "three";
-import { Panel } from "@suite/ui";
+import { Panel, Segmented } from "@suite/ui";
 import { EFFECTS, type EffectType, type ParticleSystem } from "../effects/particles";
-import type { EditState, ModelerScene, ObjectData } from "../scene/ModelerScene";
+import type { EditState, ModelerScene, ObjectData, SmoothMode } from "../scene/ModelerScene";
 
 interface PropertiesPanelProps {
   model: ModelerScene;
@@ -19,6 +19,7 @@ export function PropertiesPanel({ model, item, edit }: PropertiesPanelProps) {
   if (edit) {
     return (
       <Panel title="고른 점">
+        {item && <SmoothRows model={model} item={item} />}
         {edit.center ? (
           <>
             <p className="panel-empty">점 {edit.selectedVertexCount}개를 골랐어요. 가운데 위치를 바꾸면 함께 움직여요.</p>
@@ -159,6 +160,7 @@ export function PropertiesPanel({ model, item, edit }: PropertiesPanelProps) {
             ))}
           </select>
         </div>
+        <SmoothRows model={model} item={item} />
         <RangeField
           label="빛나기"
           value={item.glow ?? 0}
@@ -178,6 +180,49 @@ export function PropertiesPanel({ model, item, edit }: PropertiesPanelProps) {
   function particlesOf(id: string) {
     return model.getMesh(id)?.userData.particles as ParticleSystem | undefined;
   }
+}
+
+const LEVELS = ["0", "1", "2", "3"] as const;
+
+/**
+ * 매끈하게 (서브디비전 표면) 단계와 면 이어 보이기. 원래 모양은 그대로라 언제든 끄거나 단계를 바꿀 수 있다.
+ */
+function SmoothRows({ model, item }: { model: ModelerScene; item: ObjectData }) {
+  const level = item.subdivision ?? 0;
+  return (
+    <>
+      <div className="prop-row">
+        <span className="prop-label" title="각진 모양을 둥글게 나눠 보여 줘요. 원래 점, 선, 면은 그대로예요. (Ctrl+0~3)">
+          매끈하게
+        </span>
+        <div className="prop-inline">
+          <Segmented
+            label="매끈하게 단계"
+            value={String(level) as (typeof LEVELS)[number]}
+            onChange={(v) => model.setSubdivision(Number(v))}
+            options={LEVELS.map((v) => ({ value: v, label: v === "0" ? "끔" : v, hint: v === "0" ? "끄기 (Ctrl+0)" : `${v}단계 (Ctrl+${v})` }))}
+          />
+          {level > 0 && (
+            <button className="prop-small-button" title="지금 보이는 둥근 모양을 진짜 점, 선, 면으로 바꿔요. 그 뒤로 하나하나 고칠 수 있어요." onClick={() => model.applySubdivision()}>
+              적용
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="prop-row">
+        <span className="prop-label">면 잇기</span>
+        <select
+          className="prop-select"
+          value={item.smooth ?? "auto"}
+          onChange={(e) => model.update(item.id, { smooth: e.target.value as SmoothMode })}
+        >
+          <option value="auto">자동 (완만한 곳만 부드럽게)</option>
+          <option value="smooth">모두 부드럽게</option>
+          <option value="flat">모두 각지게</option>
+        </select>
+      </div>
+    </>
+  );
 }
 
 /** 한 번에 고르는 자주 쓰는 색. 로블록스 기본 색과 비슷하게 골랐다. */

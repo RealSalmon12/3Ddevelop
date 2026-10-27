@@ -220,3 +220,24 @@
 }
 .prop-swatches button:hover { transform: scale(1.15); }
 .prop-swatches button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* 박스 선택 (선택 도구로 끌기, 또는 B) */
+.box-select {
+  position: absolute;
+  border: 1px dashed var(--accent);
+  background: rgba(255, 200, 61, 0.08);
+  pointer-events: none;
+}
+.prop-inline { display: flex; align-items: center; gap: 6px; }
+.prop-inline .suite-segmented button { padding: 4px 9px; font-size: 12px; }
+.prop-small-button {
+  padding: 4px 10px;
+  background: var(--bg-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.prop-small-button:hover { border-color: var(--accent); color: var(--accent); }

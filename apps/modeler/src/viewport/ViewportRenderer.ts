@@ -8,7 +8,7 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { cloneMesh, edgeKey, meshEdges, type PolyMesh, type Vec3 } from "../mesh/PolyMesh";
 import { emptySelection, selectedVertices, type EditSelection } from "../mesh/selection";
-import type { ModelerScene } from "../scene/ModelerScene";
+import { pickGeometry, type ModelerScene } from "../scene/ModelerScene";
 import type { ParticleSystem } from "../effects/particles";
 import { EditOverlay } from "./EditOverlay";
 import { ModalTransform, type ModalKind, type ModalOptions } from "./ModalTransform";
@@ -46,6 +46,9 @@ export class ViewportRenderer {
   private shading: Shading = "solid";
   /** 마지막으로 본 마우스 위치 (캔버스 기준). G/R/S 를 누를 때 여기서 시작한다. */
   private pointer = { x: 0, y: 0, inside: false };
+  private boxPending = false;
+  private boxDrag: { x: number; y: number } | null = null;
+  private boxElement: HTMLDivElement;
   private orbit: OrbitControls;
   private transform: TransformControls;
   private selectionBox = new THREE.BoxHelper(new THREE.Object3D(), 0xffc83d);
@@ -141,6 +144,11 @@ export class ViewportRenderer {
     canvas.addEventListener("pointerup", this.onPointerUp);
     canvas.addEventListener("pointermove", this.onPointerMove);
     canvas.addEventListener("pointerleave", () => (this.pointer.inside = false));
+
+    this.boxElement = document.createElement("div");
+    this.boxElement.className = "box-select";
+    this.boxElement.hidden = true;
+    container.appendChild(this.boxElement);
 
     this.readout = document.createElement("div");
     this.readout.className = "modal-readout";
@@ -251,6 +259,7 @@ export class ViewportRenderer {
 
   setTool(tool: ToolId) {
     this.tool = tool;
+    this.updateOrbitButtons();
     if (this.modal?.active) return;
     if (tool === "select") {
       this.transform.enabled = false;
@@ -533,24 +542,25 @@ export class ViewportRenderer {
     this.overlay?.update(next, this.model.getEditSelection());
   }
 
-  /** 편집 모드에서 클릭한 곳의 점, 선, 면을 찾는다. Shift 를 누르면 더하거나 뺀다. */
-  private pickEdit(e: PointerEvent) {
-    const mesh = this.model.editingMesh();
-    const poly = this.model.editingPoly();
-    if (!mesh || !poly) return;
-    const current = this.model.getEditSelection();
+  /** 편집 모드에서 점, 선, 면을 화면 위치로 찾는 도구들 */
+  private editPicker() {
+    const mesh = this.model.editingMesh()!;
+    const poly = this.model.editingPoly()!;
     const rect = this.renderer.domElement.getBoundingClientRect();
-    const px = e.clientX - rect.left;
-    const py = e.clientY - rect.top;
     mesh.updateMatrixWorld(true);
+    // 매끈하게를 켜도 클릭은 원래 모양(점, 선, 면)으로 찾는다.
+    const cage = new THREE.Mesh(pickGeometry(mesh), mesh.material);
+    cage.matrixWorld.copy(mesh.matrixWorld);
+    const xray = this.shading !== "solid";
 
     const toScreen = (p: Vec3) => {
       const world = new THREE.Vector3(...p).applyMatrix4(mesh.matrixWorld);
       const ndc = world.clone().project(this.camera);
       return { world, x: ((ndc.x + 1) / 2) * rect.width, y: ((1 - ndc.y) / 2) * rect.height, behind: ndc.z > 1 };
     };
-    // 그 점이 다른 면에 가려져 있는지
+    /** 그 점이 다른 면에 가려져 있는지. 와이어프레임, X-ray 에서는 뒤에 있는 것도 고를 수 있다. */
     const hidden = (world: THREE.Vector3) => {
+      if (xray) return false;
       // 평면 보기에서는 모든 시선이 나란하므로 점 바로 앞에서 쏜다.
       const origin = this.isOrthographic()
         ? world.clone().addScaledVector(this.camera.getWorldDirection(new THREE.Vector3()), -100)
@@ -558,41 +568,72 @@ export class ViewportRenderer {
       const dir = world.clone().sub(origin);
       const dist = dir.length();
       this.raycaster.set(origin, dir.normalize());
-      const hit = this.raycaster.intersectObject(mesh, false)[0];
+      const hit = this.raycaster.intersectObject(cage, false)[0];
       return !!hit && hit.distance < dist - Math.max(1e-3 * dist, 1e-4);
     };
+    const edgeDistances = (px: number, py: number, edges: [number, number][]) =>
+      edges.map(([a, b]) => {
+        const sa = toScreen(poly.vertices[a]);
+        const sb = toScreen(poly.vertices[b]);
+        const t = segmentT(px, py, sa.x, sa.y, sb.x, sb.y);
+        const d = Math.hypot(sa.x + (sb.x - sa.x) * t - px, sa.y + (sb.y - sa.y) * t - py);
+        return { key: edgeKey(a, b), d, behind: sa.behind || sb.behind, world: sa.world.clone().lerp(sb.world, t) };
+      });
+    const nearestEdge = (px: number, py: number, maxDistance = 10) =>
+      edgeDistances(px, py, meshEdges(poly))
+        .filter((c) => c.d < maxDistance && !c.behind)
+        .sort((a, b) => a.d - b.d)
+        .find((c) => !hidden(c.world));
+    const faceAt = (px: number, py: number) => {
+      const ndc = new THREE.Vector2((px / rect.width) * 2 - 1, -(py / rect.height) * 2 + 1);
+      this.raycaster.setFromCamera(ndc, this.camera);
+      const hit = this.raycaster.intersectObject(cage, false)[0];
+      return hit && hit.faceIndex != null ? (cage.geometry.userData.triangleFace as number[])[hit.faceIndex] : null;
+    };
+    return { mesh, poly, rect, toScreen, hidden, edgeDistances, nearestEdge, faceAt };
+  }
+
+  /** 편집 모드에서 클릭한 곳의 점, 선, 면을 찾는다. Shift 를 누르면 더하거나 뺀다. Alt 를 누르면 한 줄을 통째로. */
+  private pickEdit(e: PointerEvent) {
+    if (!this.model.editingMesh() || !this.model.editingPoly()) return;
+    const { poly, rect, toScreen, hidden, edgeDistances, nearestEdge, faceAt } = this.editPicker();
+    const current = this.model.getEditSelection();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+
+    if (e.altKey) {
+      let edge: string | undefined;
+      if (current.mode === "face") {
+        // 면 모드: 클릭한 면에서 마우스에 가장 가까운 선을 가로지르는 방향으로 한 바퀴
+        const f = faceAt(px, py);
+        if (f === null) return;
+        const face = poly.faces[f];
+        const own = face.map((a, i) => [a, face[(i + 1) % face.length]] as [number, number]);
+        edge = edgeDistances(px, py, own).sort((a, b) => a.d - b.d)[0]?.key;
+      } else {
+        edge = nearestEdge(px, py, 16)?.key;
+      }
+      if (edge) this.model.selectLoop(edge, e.shiftKey);
+      return;
+    }
 
     let picked: { kind: "vertex"; index: number } | { kind: "edge"; key: string } | { kind: "face"; index: number } | null =
       null;
 
     if (current.mode === "vertex") {
-      const candidates = poly.vertices
+      const hit = poly.vertices
         .map((v, index) => ({ index, ...toScreen(v) }))
         .map((c) => ({ ...c, d: Math.hypot(c.x - px, c.y - py) }))
         .filter((c) => c.d < 14 && !c.behind)
-        .sort((a, b) => a.d - b.d);
-      const hit = candidates.find((c) => !hidden(c.world));
+        .sort((a, b) => a.d - b.d)
+        .find((c) => !hidden(c.world));
       if (hit) picked = { kind: "vertex", index: hit.index };
     } else if (current.mode === "edge") {
-      const candidates = meshEdges(poly)
-        .map(([a, b]) => {
-          const sa = toScreen(poly.vertices[a]);
-          const sb = toScreen(poly.vertices[b]);
-          const t = segmentT(px, py, sa.x, sa.y, sb.x, sb.y);
-          const d = Math.hypot(sa.x + (sb.x - sa.x) * t - px, sa.y + (sb.y - sa.y) * t - py);
-          return { key: edgeKey(a, b), d, behind: sa.behind || sb.behind, world: sa.world.clone().lerp(sb.world, t) };
-        })
-        .filter((c) => c.d < 10 && !c.behind)
-        .sort((a, b) => a.d - b.d);
-      const hit = candidates.find((c) => !hidden(c.world));
+      const hit = nearestEdge(px, py);
       if (hit) picked = { kind: "edge", key: hit.key };
     } else {
-      const ndc = new THREE.Vector2((px / rect.width) * 2 - 1, -(py / rect.height) * 2 + 1);
-      this.raycaster.setFromCamera(ndc, this.camera);
-      const hit = this.raycaster.intersectObject(mesh, false)[0];
-      if (hit && hit.faceIndex != null) {
-        picked = { kind: "face", index: (mesh.geometry.userData.triangleFace as number[])[hit.faceIndex] };
-      }
+      const f = faceAt(px, py);
+      if (f !== null) picked = { kind: "face", index: f };
     }
 
     const next: EditSelection = e.shiftKey
@@ -614,18 +655,112 @@ export class ViewportRenderer {
     this.model.setEditSelection(next);
   }
 
+  // ---------- 박스 선택 ----------
+
+  /** B: 다음 왼쪽 드래그 한 번을 박스 선택으로 쓴다. */
+  beginBoxSelect() {
+    this.boxPending = true;
+    this.updateOrbitButtons();
+  }
+
+  private updateOrbitButtons() {
+    // 선택 도구이거나 B 를 눌렀으면 왼쪽 드래그는 돌려보기 대신 박스 선택이다.
+    const box = this.boxPending || this.tool === "select";
+    this.orbit.mouseButtons.LEFT = box ? (-1 as THREE.MOUSE) : THREE.MOUSE.ROTATE;
+    this.renderer.domElement.style.cursor = this.boxPending ? "crosshair" : "";
+  }
+
+  private updateBoxRect(e: PointerEvent) {
+    const drag = this.boxDrag!;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    Object.assign(this.boxElement.style, {
+      left: `${Math.min(drag.x, e.clientX) - rect.left}px`,
+      top: `${Math.min(drag.y, e.clientY) - rect.top}px`,
+      width: `${Math.abs(e.clientX - drag.x)}px`,
+      height: `${Math.abs(e.clientY - drag.y)}px`,
+    });
+    this.boxElement.hidden = false;
+  }
+
+  /** 상자 안에 들어온 것을 고른다. Shift 는 더하기, Ctrl 은 빼기. */
+  private finishBox(e: PointerEvent) {
+    const drag = this.boxDrag!;
+    this.boxDrag = null;
+    this.boxElement.hidden = true;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const x0 = Math.min(drag.x, e.clientX) - rect.left;
+    const x1 = Math.max(drag.x, e.clientX) - rect.left;
+    const y0 = Math.min(drag.y, e.clientY) - rect.top;
+    const y1 = Math.max(drag.y, e.clientY) - rect.top;
+    const inside = (p: { x: number; y: number; behind: boolean }) => !p.behind && p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1;
+    const mode = e.ctrlKey ? "remove" : e.shiftKey ? "add" : "set";
+
+    if (!this.model.getSnapshot().edit) {
+      // 오브젝트 모드: 가운데가 상자 안에 든 오브젝트 (지금은 하나만 고를 수 있어서 가장 앞의 것)
+      if (mode === "remove") return;
+      const hits = this.model
+        .allMeshes()
+        .filter((m) => m.visible)
+        .map((m) => ({ m, ndc: m.getWorldPosition(new THREE.Vector3()).project(this.camera) }))
+        .filter(({ ndc }) => inside({ x: ((ndc.x + 1) / 2) * rect.width, y: ((1 - ndc.y) / 2) * rect.height, behind: ndc.z > 1 }))
+        .sort((a, b) => a.ndc.z - b.ndc.z);
+      if (hits[0]) this.model.select(hits[0].m.userData.id);
+      else if (mode === "set") this.model.select(null);
+      return;
+    }
+
+    if (!this.model.editingMesh() || !this.model.editingPoly()) return;
+    const { poly, toScreen, hidden } = this.editPicker();
+    const current = this.model.getEditSelection();
+    const visibleInside = (p: Vec3) => {
+      const s = toScreen(p);
+      return inside(s) && !hidden(s.world);
+    };
+    const vertexInside = poly.vertices.map(visibleInside);
+    const next: EditSelection =
+      mode === "set"
+        ? emptySelection(current.mode)
+        : { mode: current.mode, vertices: new Set(current.vertices), edges: new Set(current.edges), faces: new Set(current.faces) };
+    const apply = <T,>(set: Set<T>, value: T) => (mode === "remove" ? set.delete(value) : set.add(value));
+    if (current.mode === "vertex") {
+      vertexInside.forEach((ok, v) => ok && apply(next.vertices, v));
+    } else if (current.mode === "edge") {
+      for (const [a, b] of meshEdges(poly)) if (vertexInside[a] && vertexInside[b]) apply(next.edges, edgeKey(a, b));
+    } else {
+      poly.faces.forEach((face, f) => {
+        const c = face.reduce((sum, v) => sum.add(new THREE.Vector3(...poly.vertices[v])), new THREE.Vector3()).divideScalar(face.length);
+        if (visibleInside([c.x, c.y, c.z])) apply(next.faces, f);
+      });
+    }
+    this.model.setEditSelection(next);
+  }
+
   private onPointerMove = (e: PointerEvent) => {
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer = { x: e.clientX - rect.left, y: e.clientY - rect.top, inside: true };
+    if (this.boxDrag) this.updateBoxRect(e);
   };
 
   private onPointerDown = (e: PointerEvent) => {
-    if (e.button === 0) this.pointerDown = { x: e.clientX, y: e.clientY };
+    if (e.button !== 0) return;
+    this.pointerDown = { x: e.clientX, y: e.clientY };
+    // 선택 도구로 빈 곳을 끌거나, B 를 누른 뒤 끌면 박스 선택
+    if ((this.boxPending || this.tool === "select") && !this.transform.dragging) this.boxDrag = { x: e.clientX, y: e.clientY };
   };
 
   private onPointerUp = (e: PointerEvent) => {
     const start = this.pointerDown;
     this.pointerDown = null;
+    if (this.boxDrag) {
+      const moved = Math.hypot(e.clientX - this.boxDrag.x, e.clientY - this.boxDrag.y) > 4;
+      const wasPending = this.boxPending;
+      this.boxPending = false;
+      this.updateOrbitButtons();
+      if (moved) return this.finishBox(e);
+      this.boxDrag = null;
+      this.boxElement.hidden = true;
+      if (wasPending) return;
+    }
     // 드래그(돌려보기)가 아니라 제자리 클릭일 때만 선택한다.
     if (!start || e.button !== 0 || this.transform.dragging) return;
     if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 4) return;
@@ -672,6 +807,7 @@ export class ViewportRenderer {
     this.modal.cancel();
     this.gizmo.dispose();
     this.readout.remove();
+    this.boxElement.remove();
     this.disposeOverlay();
     this.unsubscribe();
     this.resizeObserver.disconnect();
