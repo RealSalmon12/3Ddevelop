@@ -41,6 +41,7 @@ export function MenuBar({ appName, menus, actions }: MenuBarProps) {
   return (
     <div className="suite-menubar" ref={ref}>
       <span className="suite-menubar-brand" title={SUITE_NAME}>
+        <Logo />
         {appName}
       </span>
       {menus.map((menu, i) => (
@@ -77,5 +78,16 @@ export function MenuBar({ appName, menus, actions }: MenuBarProps) {
       <div className="suite-menubar-spacer" />
       {actions}
     </div>
+  );
+}
+
+/** 제품군 로고: 해바라기 노랑 윗면을 가진 작은 정육면체 */
+function Logo() {
+  return (
+    <svg className="suite-menubar-logo" viewBox="0 0 24 24" aria-hidden>
+      <path d="M12 2.5 21 7.5 12 12.5 3 7.5Z" fill="#ffc83d" />
+      <path d="M3 7.5 12 12.5V22L3 17Z" fill="#b39dff" />
+      <path d="M21 7.5 12 12.5V22L21 17Z" fill="#6f5fd1" />
+    </svg>
   );
 }

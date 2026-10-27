@@ -211,7 +211,7 @@ export function App() {
               <button className="suite-menubar-action history-button" disabled={!canRedo} title="다시 실행 (Ctrl+Y)" onClick={() => model.redo()}>
                 ↷
               </button>
-              <button className="suite-menubar-action" aria-pressed={aiOpen} onClick={() => setAiOpen(!aiOpen)}>
+              <button className="suite-menubar-action ai" aria-pressed={aiOpen} onClick={() => setAiOpen(!aiOpen)}>
                 ✨ AI 도우미
               </button>
             </>

@@ -106,7 +106,7 @@ export function AIAssistantPanel({ app, greeting, examples, getContext, system, 
   }
 
   return (
-    <Panel title="✨ AI 도우미" grow>
+    <Panel title="✨ AI 도우미" grow className="ai">
       <div className="suite-ai-toolbar">
         <span className={configured ? "suite-ai-dot on" : "suite-ai-dot"} />
         <span>{configured ? "연결됨" : "API 키가 필요해요"}</span>

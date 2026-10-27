@@ -22,7 +22,7 @@ export class ViewportRenderer {
   private camera = new THREE.PerspectiveCamera(45, 1, 0.05, 1000);
   private orbit: OrbitControls;
   private transform: TransformControls;
-  private selectionBox = new THREE.BoxHelper(new THREE.Object3D(), 0xffa64d);
+  private selectionBox = new THREE.BoxHelper(new THREE.Object3D(), 0xffc83d);
   private raycaster = new THREE.Raycaster();
   private pointerDown: { x: number; y: number } | null = null;
 
@@ -65,7 +65,7 @@ export class ViewportRenderer {
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
 
-    this.scene.background = new THREE.Color(0x2b2e33);
+    this.scene.background = new THREE.Color(0x232838);
     this.setupWorld();
     this.scene.add(model.root);
 

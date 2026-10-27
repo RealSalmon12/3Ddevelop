@@ -3,7 +3,7 @@ import { edgeKey, meshEdges, type PolyMesh } from "../mesh/PolyMesh";
 import { selectedVertices, type EditSelection } from "../mesh/selection";
 
 const COLOR_NORMAL = new THREE.Color(0x111318);
-const COLOR_SELECTED = new THREE.Color(0xffa64d);
+const COLOR_SELECTED = new THREE.Color(0xffc83d);
 const COLOR_EDGE = new THREE.Color(0x1b1d22);
 
 /** 편집 모드에서 오브젝트 위에 점, 선, 고른 면을 그린다. 편집 중인 오브젝트의 자식으로 붙어 같이 움직인다. */
