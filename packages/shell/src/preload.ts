@@ -8,6 +8,8 @@ export function exposeSuiteBridge(appId: string) {
     platform: process.platform,
     ai: {
       ask: (request: AIRequest) => ipcRenderer.invoke(IPC.aiAsk, request),
+      status: () => ipcRenderer.invoke(IPC.aiStatus),
+      setApiKey: (key: string) => ipcRenderer.invoke(IPC.aiSetKey, key),
     },
     window: {
       setDirty: (dirty: boolean) => ipcRenderer.send(IPC.setDirty, dirty),

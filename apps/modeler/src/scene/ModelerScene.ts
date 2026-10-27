@@ -197,6 +197,38 @@ export class ModelerScene {
     this.commit();
   }
 
+  /**
+   * 여러 도형을 한 번에 바꾼다 (AI 가 쓴다). 같은 이름이 있으면 바꾸고, 없으면 새로 만든다.
+   * 편집한 모양은 그대로 두고 위치, 회전, 크기, 색만 바꾼다. 전체가 한 번의 실행 취소로 묶인다.
+   */
+  applyChanges(changes: {
+    remove: string[];
+    upsert: { name: string; kind: ShapeKind; position: Vec3; rotation: Vec3; scale: Vec3; color?: string }[];
+  }) {
+    this.exitEditSilently();
+    const byName = new Map([...this.meshes.values()].map((m) => [m.name, m]));
+    for (const name of changes.remove) {
+      const mesh = byName.get(name);
+      if (mesh) this.disposeMesh(mesh.userData.id);
+      byName.delete(name);
+    }
+    let lastId: string | null = null;
+    for (const o of changes.upsert) {
+      const existing = byName.get(o.name);
+      if (existing && existing.userData.kind === o.kind) {
+        applyData(existing, { ...toInfo(existing), ...o, color: o.color ?? toInfo(existing).color });
+        lastId = existing.userData.id;
+      } else {
+        if (existing) this.disposeMesh(existing.userData.id);
+        lastId = this.createMesh({ id: crypto.randomUUID(), ...o, color: o.color ?? DEFAULT_COLOR });
+        byName.set(o.name, this.meshes.get(lastId)!);
+      }
+    }
+    if (this.selectedId && !this.meshes.has(this.selectedId)) this.selectedId = null;
+    if (lastId && !this.selectedId) this.selectedId = lastId;
+    this.commit();
+  }
+
   removeSelected() {
     if (this.editingId) this.deleteEditSelection();
     else if (this.selectedId) this.remove(this.selectedId);

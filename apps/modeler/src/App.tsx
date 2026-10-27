@@ -15,6 +15,7 @@ import {
 } from "@suite/ui";
 import type { SelectMode } from "./mesh/selection";
 import { PropertiesPanel } from "./panels/PropertiesPanel";
+import { AI_SYSTEM, AI_TOOL, applyPlan, sceneContext, type ScenePlan } from "./scene/aiModeling";
 import { EXPORT_FORMATS } from "./scene/exporters";
 import { ModelerScene } from "./scene/ModelerScene";
 import { SHAPES } from "./scene/shapes";
@@ -213,7 +214,12 @@ export function App() {
               app="modeler"
               greeting="안녕하세요! 만들고 싶은 것을 글로 설명해 주시면 제가 모델로 만들어 드릴게요."
               examples={["빨간 지붕이 있는 작은 집", "나무 의자", "눈사람"]}
-              getContext={() => items.map(({ name, kind, position, rotation, scale, color }) => ({ name, kind, position, rotation, scale, color }))}
+              getContext={() => sceneContext(model)}
+              system={AI_SYSTEM}
+              tool={AI_TOOL}
+              onResponse={({ text, toolInput }) =>
+                toolInput ? `${applyPlan(model, toolInput as ScenePlan)}\n(마음에 안 들면 Ctrl+Z 로 되돌릴 수 있어요.)` : text
+              }
             />
           )}
         </>
