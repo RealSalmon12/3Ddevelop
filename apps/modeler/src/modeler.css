@@ -146,3 +146,19 @@
   cursor: pointer;
 }
 .view-buttons button:hover { background: var(--bg-raised); color: var(--text); }
+
+.prop-swatches {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 4px;
+  margin: -2px 0 10px 72px;
+}
+.prop-swatches button {
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.prop-swatches button:hover { transform: scale(1.15); }
+.prop-swatches button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }

@@ -98,6 +98,18 @@ export function PropertiesPanel({ model, item, edit }: PropertiesPanelProps) {
           onCommit={(color) => update({ color })}
         />
       </div>
+      <div className="prop-swatches" role="group" aria-label="자주 쓰는 색">
+        {SWATCHES.map(([color, name]) => (
+          <button
+            key={color}
+            title={name}
+            aria-label={name}
+            aria-pressed={item.color === color}
+            style={{ background: color }}
+            onClick={() => update({ color })}
+          />
+        ))}
+      </div>
       {item.effect ? (
         <>
           <div className="prop-row">
@@ -167,6 +179,22 @@ export function PropertiesPanel({ model, item, edit }: PropertiesPanelProps) {
     return model.getMesh(id)?.userData.particles as ParticleSystem | undefined;
   }
 }
+
+/** 한 번에 고르는 자주 쓰는 색. 로블록스 기본 색과 비슷하게 골랐다. */
+const SWATCHES: [string, string][] = [
+  ["#f2f3f5", "흰색"],
+  ["#a3a9b3", "회색"],
+  ["#2b2d33", "검정"],
+  ["#c4483e", "빨강"],
+  ["#f28a3b", "주황"],
+  ["#f2cd4b", "노랑"],
+  ["#5a9c4b", "초록"],
+  ["#3f6fc7", "파랑"],
+  ["#8a5cd6", "보라"],
+  ["#e889b5", "분홍"],
+  ["#7b5234", "나무색"],
+  ["#efe2c4", "모래색"],
+];
 
 /** 끄는 동안은 미리 보기만 하고, 손을 떼면 한 번만 기록하는 슬라이더 */
 function RangeField({
