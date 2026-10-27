@@ -3,6 +3,7 @@ import { Panel } from "@suite/ui";
 import type { PixelDoc } from "../doc/PixelDoc";
 import { PALETTES } from "../doc/palettes";
 import { usedColors } from "../doc/raster";
+import { colorRamp } from "../doc/ramp";
 
 interface Props {
   doc: PixelDoc;
@@ -119,6 +120,18 @@ export function ColorPanel({ doc, palette, color, secondary, recent, onChange, o
           }}
         >
           밝기순
+        </button>
+        <button
+          className="mini"
+          title="전경색으로 어두운 색부터 밝은 색까지 5단계 램프를 만들어 팔레트에 넣어요. 어두울수록 파랑 쪽, 밝을수록 노랑 쪽으로 색조를 살짝 돌려서 탁하지 않아요 (hue shifting)"
+          onClick={() => {
+            const ramp = colorRamp(color, 5).filter((c) => !palette.includes(c));
+            if (!ramp.length) return notify("이 램프는 이미 팔레트에 있어요.");
+            doc.setPalette([...palette, ...ramp]);
+            notify(`${color} 로 ${ramp.length}색 램프를 넣었어요. 명암 붓으로 바로 써 보세요.`);
+          }}
+        >
+          램프 만들기
         </button>
       </div>
       {recent.length > 0 && (
