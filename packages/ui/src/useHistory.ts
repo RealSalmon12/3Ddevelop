@@ -6,7 +6,7 @@ const LIMIT = 80;
  * 실행 취소가 되는 상태. set 은 기록을 남기고, preview 는 끄는 중처럼 기록 없이 바꾼다.
  * 끄는 동작은 begin() 으로 시작 모습을 기억하고 commit() 으로 한 칸만 남긴다.
  */
-export function useHistory<T>(initial: T) {
+export function useHistory<T>(initial: T, limit = LIMIT) {
   const [state, setState] = useState(initial);
   // 저장 표시만 바뀔 때도 화면을 다시 그리게 한다.
   const [, bump] = useState(0);
@@ -19,7 +19,7 @@ export function useHistory<T>(initial: T) {
 
   const push = (before: T) => {
     past.current.push(before);
-    if (past.current.length > LIMIT) past.current.shift();
+    if (past.current.length > limit) past.current.shift();
     future.current = [];
   };
 
