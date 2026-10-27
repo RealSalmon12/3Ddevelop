@@ -2,29 +2,42 @@
 
 초보자도 쉽게 쓸 수 있는 크리에이티브 프로그램 제품군 **누구나 스튜디오**입니다.
 어도비 제품군처럼 용도가 다른 여러 프로그램이 같은 디자인과 같은 AI 도우미를 함께 씁니다.
-첫 번째 프로그램은 블렌더처럼 쓰는 **3D 모델러**입니다.
+
+| 프로그램 | 하는 일 | 비슷한 프로그램 |
+| --- | --- | --- |
+| **누구나 스튜디오 허브** | 제품군 프로그램을 설치하고, 열고, 업데이트하는 곳. AI 키도 여기서 한 번만 넣어요 | 어도비 Creative Cloud |
+| **3D 모델러** | 3D 모델 만들기, 로블록스로 내보내기 | 블렌더 |
+| **픽셀 그림판** | 픽셀 그림, 아이콘, 로블록스 데칼·텍스처 | 에이스프라이트, 포토샵 |
+| 사진 편집기, 소리 편집기, 영상 편집기 | 준비 중 | 포토샵, 오디션, 프리미어 |
 
 ## 폴더 구조
 
 ```
 apps/
+  hub/            누구나 스튜디오 허브 (프로그램 설치·실행·업데이트)
   modeler/        3D 모델러 (Electron + React + three.js)
+  pixel/          픽셀 그림판 (Electron + React + Canvas)
 packages/
   shell/          모든 앱 공통 Electron 기반: 창 만들기, 화면과 메인 프로세스 연결, AI 요청 통로
   ui/             모든 앱 공통 화면 디자인: 테마, 메뉴 막대, 도구 막대, 패널, AI 도우미 패널
 ```
 
 새 프로그램(예: 사진 편집기)은 `apps/` 아래에 폴더를 하나 더 만들고 `@suite/shell` 과 `@suite/ui` 를 가져다 쓰면 됩니다.
+허브에 보이게 하려면 `apps/hub/src/catalog.ts` 에 넣고, `.github/workflows/build.yml` 의 목록에 추가해요.
 제품군 이름은 `packages/ui/src/brand.ts` 한 곳에서 바꿀 수 있습니다.
 
 ## 설치 파일로 설치하기 (가장 쉬움)
 
-[Releases](https://github.com/RealSalmon12/3Ddevelop/releases/latest) 에서 `NugunaStudio-3D-Modeler-Setup-….exe` 를 받아 실행하면 됩니다.
-코드가 `main` 에 병합될 때마다 GitHub Actions 가 새 설치 파일을 자동으로 만들어 올려요.
+1. [Releases](https://github.com/RealSalmon12/3Ddevelop/releases/latest) 에서 `NugunaStudio-Setup-….exe`(**누구나 스튜디오 허브**)를 받아 실행해요.
+2. 허브를 열면 프로그램 목록이 나와요. 원하는 프로그램의 **설치**를 누르고, 다 되면 **열기**를 눌러요.
+3. 오른쪽 **✨ AI 도우미** 칸에 API 키를 한 번 넣으면 모든 프로그램에서 AI 를 쓸 수 있어요.
+
+허브 없이 프로그램 하나만 받고 싶으면 [모든 릴리스](https://github.com/RealSalmon12/3Ddevelop/releases)에서 `NugunaStudio-3D-Modeler-Setup-….exe` 나 `NugunaStudio-Pixel-Setup-….exe` 를 받아도 돼요.
+코드가 `main` 에 병합될 때마다 GitHub Actions 가 바뀐 프로그램의 설치 파일을 자동으로 만들어 올려요.
 
 > 아직 코드 서명을 하지 않아서 처음 실행할 때 "Windows의 PC 보호" 창이 뜰 수 있어요. **추가 정보 → 실행** 을 누르면 됩니다.
 
-직접 설치 파일을 만들려면 Windows 에서 `npm run dist:modeler` 를 실행하세요. `apps/modeler/release/` 에 .exe 가 생겨요.
+직접 설치 파일을 만들려면 Windows 에서 `npm run dist:hub`, `npm run dist:modeler`, `npm run dist:pixel` 을 실행하세요. 각 앱의 `release/` 폴더에 .exe 가 생겨요.
 
 ## 업데이트
 
@@ -39,17 +52,43 @@ packages/
    ```
    npm install
    ```
-3. 3D 모델러를 개발 모드로 켭니다. 코드를 고치면 화면이 바로 바뀝니다.
+3. 프로그램을 개발 모드로 켭니다. 코드를 고치면 화면이 바로 바뀝니다.
    ```
+   npm run dev:hub
    npm run dev:modeler
+   npm run dev:pixel
    ```
 
 그 밖의 명령:
 
 | 명령 | 하는 일 |
 | --- | --- |
-| `npm run build:modeler` | 3D 모델러를 실행 파일로 묶기 전 단계까지 빌드 |
+| `npm run build` | 모든 프로그램을 실행 파일로 묶기 전 단계까지 빌드 (`build:hub` 처럼 하나만도 돼요) |
 | `npm run typecheck` | 모든 패키지의 TypeScript 타입 검사 |
+
+## 픽셀 그림판 조작법
+
+| 조작 | 동작 |
+| --- | --- |
+| 왼쪽 클릭·끌기 | 칠하기 (연필) |
+| 오른쪽 클릭·끌기 | 지우기 |
+| 마우스 휠 | 확대 / 축소 |
+| Space+끌기, 휠 버튼 끌기 | 화면 옮기기 |
+| B / E / G / I | 연필 / 지우개 / 채우기 / 스포이트 |
+| L / U / O / V | 직선 / 네모 / 동그라미 / 옮기기 |
+| [ ] | 붓 크기 |
+| M | 좌우 대칭 그리기 켜기/끄기 |
+| Alt+클릭 | 그림에서 색 가져오기 |
+| 0 | 화면에 맞추기 |
+| Ctrl+Z / Ctrl+Y | 실행 취소 / 다시 실행 |
+| Ctrl+N / Ctrl+O / Ctrl+S | 새 그림 / 열기 / 저장 (.npixel) |
+| Ctrl+E | 로블록스용 PNG 로 내보내기 (1024px) |
+
+- **파일 → 예제 열기**로 하트, 검, 슬라임을 열어 픽셀 아트를 어떻게 칠하는지 볼 수 있어요.
+- **그림 파일 가져오기**를 하면 사진이나 그림을 지금 크기의 픽셀로 바꿔서 새 레이어에 넣어요.
+- 미리보기의 **이어 붙여 보기**로 게임 바닥·벽 텍스처가 자연스럽게 이어지는지 볼 수 있어요.
+- AI 도우미에게 "빨간 물약 병"처럼 쓰면 지금 레이어에 그려 줘요. "뚜껑을 파랗게"처럼 이어서 고칠 수 있어요.
+- 로블록스용 PNG 는 칸이 흐려지지 않게 그대로 키워서 저장해요. 로블록스 스튜디오의 Asset Manager 에서 이미지로 올리거나 Decal 의 Texture 로 쓰면 돼요.
 
 ## 3D 모델러 조작법
 
@@ -121,7 +160,7 @@ packages/
 ## AI 도우미 쓰기
 
 1. [console.anthropic.com](https://console.anthropic.com/settings/keys) 에서 API 키를 만듭니다 (사용한 만큼 요금이 나가요).
-2. 3D 모델러 오른쪽 AI 도우미 패널의 **API 키 설정** 을 눌러 키를 붙여 넣습니다. 키는 이 컴퓨터에만 암호화해서 저장돼요.
+2. 허브 오른쪽 **AI 도우미** 칸이나, 각 프로그램 오른쪽 AI 도우미 패널의 **API 키 설정** 을 눌러 키를 붙여 넣습니다. 한 번 넣으면 모든 프로그램이 같이 써요. 키는 이 컴퓨터에만 암호화해서 저장돼요.
 3. "빨간 지붕이 있는 작은 집" 처럼 만들고 싶은 것을 글로 쓰면 AI 가 도형을 조합해 만들어 줘요. "지붕을 더 높게" 처럼 이어서 고칠 수도 있고, 마음에 안 들면 Ctrl+Z 로 되돌리면 돼요.
 
 AI 연결은 `packages/shell/src/ai.ts` 에 있고 제품군의 모든 앱이 같이 써요.
@@ -135,3 +174,4 @@ AI 연결은 `packages/shell/src/ai.ts` 에 있고 제품군의 모든 앱이 �
 3. **초보자 친화 기능과 AI 모델링**: 튜토리얼, 글로 설명하면 AI 가 모델을 만들고 대화로 고쳐주기
 4. **Windows 설치 파일(.exe) 만들기** (완료: GitHub Actions 자동 빌드)
 5. ~~**이펙트 기능**~~ 완료
+6. **제품군 늘리기**: 허브(완료), 픽셀 그림판(완료), 다음은 사진 편집기와 소리 편집기

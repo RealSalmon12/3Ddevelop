@@ -7,10 +7,17 @@
     "apps/*"
   ],
   "scripts": {
+    "dev:hub": "npm run dev -w @suite/hub",
     "dev:modeler": "npm run dev -w @suite/modeler",
+    "dev:pixel": "npm run dev -w @suite/pixel",
+    "build:hub": "npm run build -w @suite/hub",
     "build:modeler": "npm run build -w @suite/modeler",
-    "typecheck": "tsc -p packages/ui && tsc -p packages/shell && tsc -p apps/modeler",
-    "dist:modeler": "npm run dist -w @suite/modeler"
+    "build:pixel": "npm run build -w @suite/pixel",
+    "build": "npm run build:hub && npm run build:modeler && npm run build:pixel",
+    "typecheck": "tsc -p packages/ui && tsc -p packages/shell && tsc -p apps/hub && tsc -p apps/modeler && tsc -p apps/pixel",
+    "dist:hub": "npm run dist -w @suite/hub",
+    "dist:modeler": "npm run dist -w @suite/modeler",
+    "dist:pixel": "npm run dist -w @suite/pixel"
   },
   "devDependencies": {
     "typescript": "~5.9.3"

@@ -42,6 +42,8 @@ export type SaveFileResult = { ok: true; path: string } | { ok: false; reason: "
 
 export interface OpenFileRequest {
   filters: FileFilter[];
+  /** 그림처럼 글자가 아닌 파일. true 면 결과의 text 에 base64 로 담아 준다. */
+  binary?: boolean;
 }
 
 export type OpenFileResult =
