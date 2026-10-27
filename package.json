@@ -1,0 +1,17 @@
+{
+  "name": "3ddevelop",
+  "private": true,
+  "description": "초보자 친화 크리에이티브 프로그램 제품군",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:modeler": "npm run dev -w @suite/modeler",
+    "build:modeler": "npm run build -w @suite/modeler",
+    "typecheck": "tsc -p packages/ui && tsc -p packages/shell && tsc -p apps/modeler"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
+}
