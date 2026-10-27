@@ -36,7 +36,7 @@ jobs:
       matrix:
         include:
           - app: hub
-            title: 누구나 스튜디오 허브
+            title: 바코 스튜디오 허브
             latest: "true"
           - app: modeler
             title: 스컬프트 3D

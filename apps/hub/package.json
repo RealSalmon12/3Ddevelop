@@ -2,7 +2,7 @@
   "name": "@suite/hub",
   "version": "0.1.0",
   "private": true,
-  "description": "누구나 스튜디오 허브: 제품군 프로그램을 설치하고 여는 곳",
+  "description": "바코 스튜디오 허브: 제품군 프로그램을 설치하고 여는 곳",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -24,11 +24,11 @@
     "react-dom": "^19.3.1",
     "vite": "^8.3.5"
   },
-  "author": "누구나 스튜디오",
+  "author": "바코 스튜디오",
   "build": {
     "appId": "com.nugunastudio.hub",
-    "productName": "누구나 스튜디오",
-    "artifactName": "NugunaStudio-Setup-${version}.${ext}",
+    "productName": "바코 스튜디오",
+    "artifactName": "BacoStudio-Setup-${version}.${ext}",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -48,7 +48,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "누구나 스튜디오",
+      "shortcutName": "바코 스튜디오",
       "language": "1042"
     },
     "electronVersion": "45.0.0",
