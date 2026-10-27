@@ -67,7 +67,8 @@ function syncWire(mesh: THREE.Mesh, show: boolean) {
   (wire.material as THREE.LineBasicMaterial).color.copy(color).lerp(WHITE, 0.35);
   // 모양이 바뀌면 geometry 가 새것으로 바뀐다. 그때만 선을 다시 만든다.
   if (wire.userData.source === mesh.geometry.uuid) return;
-  const poly = mesh.userData.poly as PolyMesh;
+  // 매끈하게(서브디비전) 켠 오브젝트는 실제로 그려지는 잘게 나뉜 모양의 선을 보여 준다.
+  const poly = (mesh.userData.displayPoly ?? mesh.userData.poly) as PolyMesh;
   const positions: number[] = [];
   for (const [a, b] of meshEdges(poly)) positions.push(...poly.vertices[a], ...poly.vertices[b]);
   wire.geometry.dispose();

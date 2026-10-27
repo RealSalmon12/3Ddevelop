@@ -19,6 +19,7 @@ export interface ScenePlan {
     color?: string;
     glow?: number;
     surface?: string;
+    subdivision?: number;
     effect?: EffectType;
   }[];
 }
@@ -44,6 +45,7 @@ export const AI_SYSTEM = `당신은 초보자용 3D 모델링 프로그램의 AI
     snow(눈, 3x3 넓이에 높이 2 에서 내림), magic(마법, 빙글빙글 올라가는 빛), bubbles(거품, 떠오르는 방울).
     position 은 이펙트가 시작하는 바닥 위치이고 scale 로 크기를 키운다. color 가 입자 색이다.
 - surface 로 겉면 느낌을 고를 수 있다: plastic(기본), matte(흙, 나무, 천), shiny(도자기, 사탕), metal(쇠, 금, 은), glass(유리, 물, 얼음. 반투명).
+- subdivision 을 1~2 로 주면 각진 도형이 둥글고 매끈해진다. 정육면체에 주면 조약돌, 쿠션, 젤리, 귀여운 캐릭터 몸통처럼 된다. 각진 집, 블록에는 주지 않는다.
 - glow 를 1~3 으로 주면 그 도형이 자기 색으로 빛나고 빛이 번져 보인다 (전구, 용암, 네온, 마법 수정 등).
 - 예: 횃불은 갈색 cylinder 손잡이 + 그 위 fire effect, 굴뚝 연기는 굴뚝 꼭대기에 smoke effect.
 - 예: 바닥에 놓인 높이 2 인 기둥은 kind=cylinder, scale=[0.3, 2, 0.3], position=[0, 1, 0].
@@ -75,6 +77,7 @@ export const AI_TOOL = {
             effect: { type: "string", enum: EFFECTS.map((e) => e.type), description: "kind 가 effect 일 때 이펙트 종류" },
             glow: { type: "number", minimum: 0, maximum: 5, description: "스스로 빛나는 세기" },
             surface: { type: "string", enum: SURFACES.map((x) => x.type), description: "겉면 느낌" },
+            subdivision: { type: "integer", minimum: 0, maximum: 2, description: "매끈하게 단계 (0 각진 그대로, 1~2 둥글게)" },
             position: vec3,
             rotation: vec3,
             scale: vec3,
@@ -90,12 +93,13 @@ export const AI_TOOL = {
 
 /** AI 에게 보여줄 현재 장면 */
 export function sceneContext(model: ModelerScene) {
-  return model.getSnapshot().items.map(({ name, kind, position, rotation, scale, color, glow, surface, effect }) => ({
+  return model.getSnapshot().items.map(({ name, kind, position, rotation, scale, color, glow, surface, subdivision, effect }) => ({
     name,
     kind,
     ...(effect && { effect: effect.type }),
     ...(glow && { glow }),
     ...(surface && { surface }),
+    ...(subdivision && { subdivision }),
     position,
     rotation: rotation.map((r) => Math.round(r / DEG)),
     scale,
@@ -124,6 +128,7 @@ export function applyPlan(model: ModelerScene, plan: ScenePlan): string {
         color: /^#[0-9a-fA-F]{6}$/.test(o.color ?? "") ? o.color!.toLowerCase() : undefined,
         glow: Number.isFinite(o.glow) ? Math.min(Math.max(o.glow!, 0), 5) : undefined,
         ...(isSurface(o.surface) && { surface: o.surface }),
+        ...(Number.isInteger(o.subdivision) && { subdivision: Math.min(Math.max(o.subdivision!, 0), 2) }),
         effect: o.kind === "effect" ? { type: o.effect!, amount: 1, speed: 1 } : undefined,
       })),
   });

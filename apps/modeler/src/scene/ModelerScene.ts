@@ -1,8 +1,10 @@
 import { applySurface, type Surface } from "./materials";
 import * as THREE from "three";
-import { buildGeometry } from "../mesh/geometry";
+import { AUTO_SMOOTH_DEGREES, buildGeometry } from "../mesh/geometry";
+import { edgeLoop, edgeRing, loopCut } from "../mesh/loops";
+import { MAX_SUBDIVISION, subdivide } from "../mesh/subdivision";
 import * as ops from "../mesh/operations";
-import { add, centroid, cloneMesh, faceNormal, sub, type PolyMesh, type Vec3 } from "../mesh/PolyMesh";
+import { add, centroid, cloneMesh, edgeKey, faceNormal, sub, type PolyMesh, type Vec3 } from "../mesh/PolyMesh";
 import {
   convertSelection,
   emptySelection,
@@ -37,9 +39,18 @@ export interface ObjectData {
   effect?: EffectSettings;
   /** 화면에서 숨겼는지 (H). 숨겨도 저장, 내보내기에는 들어간다. */
   hidden?: boolean;
+  /**
+   * 매끈하게 (블렌더의 서브디비전 표면 모디파이어). 0~3. 원래 모양(점, 선, 면)은 그대로 두고
+   * 보이는 모양과 내보내는 모양만 둥글게 나눈다. 편집 모드에서는 원래 모양의 점을 움직여 다듬는다.
+   */
+  subdivision?: number;
+  /** 면 이어 보이기: auto 는 완만한 곳만 부드럽게, smooth 는 모두 부드럽게, flat 은 모두 각지게 */
+  smooth?: SmoothMode;
   /** 모양 (오브젝트 기준 좌표). 처음 버전 파일에는 없어서 kind 로 다시 만든다. */
   mesh?: PolyMesh;
 }
+
+export type SmoothMode = "auto" | "smooth" | "flat";
 
 /** 화면 목록과 속성 패널에 보여줄 정보 (모양 데이터는 크기가 커서 뺀다) */
 export type ObjectInfo = Omit<ObjectData, "mesh">;
@@ -310,6 +321,7 @@ export class ModelerScene {
       color?: string;
       glow?: number;
       surface?: Surface;
+      subdivision?: number;
       effect?: EffectSettings;
     }[];
   }) {
@@ -487,8 +499,7 @@ export class ModelerScene {
     const mesh = this.editingMesh();
     if (!mesh) return;
     mesh.userData.poly = poly;
-    mesh.geometry.dispose();
-    mesh.geometry = buildGeometry(poly);
+    rebuildGeometry(mesh);
     this.editVersion++;
   }
 
@@ -560,6 +571,84 @@ export class ModelerScene {
     return true;
   }
 
+  /**
+   * 루프 컷 (Ctrl+R): 고른 선(없으면 고른 점 둘이 이루는 선)을 가로지르는 고리 모양의 면들을 한 줄 자른다.
+   * 새로 생긴 선들을 골라 두므로 바로 G 로 옮길 수 있다.
+   */
+  loopCut(): boolean {
+    const poly = this.editingPoly();
+    if (!poly) return false;
+    const start = this.pickRingEdge(poly);
+    if (!start) return false;
+    const result = loopCut(poly, start);
+    if (!result) return false;
+    this.setEditingPoly(result.mesh);
+    const sel = emptySelection("edge");
+    result.edges.forEach((e) => sel.edges.add(e));
+    this.editSelection = convertSelection(result.mesh, sel, this.editSelection.mode === "face" ? "edge" : this.editSelection.mode);
+    this.commit();
+    return true;
+  }
+
+  private pickRingEdge(poly: PolyMesh): string | null {
+    const sel = this.editSelection;
+    if (sel.mode === "edge" && sel.edges.size > 0) return [...sel.edges][0];
+    const verts = [...selectedVertices(poly, sel)];
+    for (const face of poly.faces) {
+      for (let i = 0; i < face.length; i++) {
+        const a = face[i];
+        const b = face[(i + 1) % face.length];
+        if (verts.includes(a) && verts.includes(b)) return edgeKey(a, b);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Alt+클릭: 선 하나로 이어진 한 줄을 통째로 고른다. 면 모드에서는 그 선을 가로지르는 면 한 바퀴를 고른다.
+   * add 면 지금 고른 것에 더한다.
+   */
+  selectLoop(edge: string, add: boolean) {
+    const poly = this.editingPoly();
+    if (!poly) return;
+    const mode = this.editSelection.mode;
+    const base = add ? this.editSelection : emptySelection(mode);
+    const next: EditSelection = { mode, vertices: new Set(base.vertices), edges: new Set(base.edges), faces: new Set(base.faces) };
+    if (mode === "face") {
+      edgeRing(poly, edge).faces.forEach((f) => next.faces.add(f));
+    } else {
+      const loop = edgeLoop(poly, edge);
+      if (mode === "edge") loop.forEach((e) => next.edges.add(e));
+      else loop.forEach((e) => e.split("-").forEach((v) => next.vertices.add(Number(v))));
+    }
+    this.setEditSelection(next);
+  }
+
+  /** 매끈하게 단계를 모양에 굳힌다 (블렌더의 모디파이어 적용). 그 뒤로는 잘게 나뉜 점들을 하나하나 고칠 수 있다. */
+  applySubdivision(): boolean {
+    const mesh = this.getMesh(this.editingId ?? this.selectedId);
+    const level = (mesh?.userData.subdivision as number | undefined) ?? 0;
+    if (!mesh || level === 0) return false;
+    mesh.userData.poly = subdivide(mesh.userData.poly as PolyMesh, level);
+    mesh.userData.subdivision = undefined;
+    rebuildGeometry(mesh);
+    if (this.editingId) this.editSelection = emptySelection(this.editSelection.mode);
+    this.editVersion++;
+    this.commit();
+    return true;
+  }
+
+  /** Ctrl+0~3: 고른 오브젝트를 매끈하게 하는 단계 */
+  setSubdivision(level: number): boolean {
+    const id = this.editingId ?? this.selectedId;
+    const mesh = this.getMesh(id);
+    if (!id || !mesh || mesh.userData.kind === "effect") return false;
+    this.update(id, { subdivision: level });
+    this.editVersion++;
+    this.refresh();
+    return true;
+  }
+
   flip() {
     return this.applyFaceOperation((poly, faces) => ops.flipFaces(poly, faces));
   }
@@ -626,7 +715,7 @@ export class ModelerScene {
     const poly = data.mesh ? cloneMesh(data.mesh) : createShape(data.kind);
     const isEffect = data.kind === "effect";
     const mesh = new THREE.Mesh(
-      buildGeometry(poly),
+      new THREE.BufferGeometry(),
       new THREE.MeshStandardMaterial({
         // 이펙트 표시는 뼈대만 보이는 작은 다이아몬드
         wireframe: isEffect,
@@ -643,6 +732,7 @@ export class ModelerScene {
     mesh.userData.poly = poly;
     mesh.userData.id = data.id;
     mesh.userData.kind = data.kind;
+    mesh.userData.geometryKey = null;
     mesh.castShadow = !isEffect;
     mesh.receiveShadow = !isEffect;
     applyData(mesh, data);
@@ -659,6 +749,7 @@ export class ModelerScene {
     (wire?.material as THREE.Material | undefined)?.dispose();
     this.root.remove(mesh);
     mesh.geometry.dispose();
+    (mesh.userData.cage as THREE.BufferGeometry | undefined)?.dispose();
     (mesh.material as THREE.Material).dispose();
     this.meshes.delete(id);
   }
@@ -708,12 +799,46 @@ function toInfo(mesh: THREE.Mesh): ObjectInfo {
     ...(mesh.userData.surface ? { surface: mesh.userData.surface as Surface } : {}),
     ...(mesh.userData.effect ? { effect: { ...(mesh.userData.effect as EffectSettings) } } : {}),
     ...(mesh.visible ? {} : { hidden: true }),
+    ...(mesh.userData.subdivision ? { subdivision: mesh.userData.subdivision as number } : {}),
+    ...(mesh.userData.smooth && mesh.userData.smooth !== "auto" ? { smooth: mesh.userData.smooth as SmoothMode } : {}),
   };
+}
+
+/**
+ * 원래 모양(poly)에서 화면에 그릴 모양을 만든다. 매끈하게를 켰으면 잘게 나눈 모양을 그리고,
+ * 편집 모드에서 점, 선, 면을 클릭으로 찾을 수 있도록 원래 모양 그대로의 것(cage)도 따로 둔다.
+ */
+function rebuildGeometry(mesh: THREE.Mesh) {
+  const poly = mesh.userData.poly as PolyMesh;
+  const level = (mesh.userData.subdivision as number | undefined) ?? 0;
+  const smooth = (mesh.userData.smooth as SmoothMode | undefined) ?? "auto";
+  // 매끈하게 켠 모양은 기본으로 모두 부드럽게 이어 보인다 (블렌더에서 Shade Smooth 와 같이 쓰는 것처럼).
+  const degrees = smooth === "flat" ? 0 : smooth === "smooth" || level > 0 ? 180 : AUTO_SMOOTH_DEGREES;
+  const display = level > 0 ? subdivide(poly, level) : poly;
+
+  mesh.geometry.dispose();
+  (mesh.userData.cage as THREE.BufferGeometry | undefined)?.dispose();
+  mesh.geometry = buildGeometry(display, degrees);
+  mesh.userData.displayPoly = level > 0 ? display : undefined;
+  mesh.userData.cage = level > 0 ? buildGeometry(poly) : undefined;
+  mesh.userData.geometryKey = `${level}/${smooth}`;
+}
+
+/** 편집 모드에서 클릭한 면을 찾을 모양 (원래 모양 그대로) */
+export function pickGeometry(mesh: THREE.Mesh): THREE.BufferGeometry {
+  return (mesh.userData.cage as THREE.BufferGeometry | undefined) ?? mesh.geometry;
 }
 
 function applyData(mesh: THREE.Mesh, data: ObjectInfo) {
   mesh.name = data.name;
   mesh.visible = !data.hidden;
+  if (data.kind !== "effect") {
+    mesh.userData.subdivision = Math.max(0, Math.min(MAX_SUBDIVISION, Math.round(data.subdivision ?? 0))) || undefined;
+    mesh.userData.smooth = data.smooth && data.smooth !== "auto" ? data.smooth : undefined;
+  }
+  // 매끈하게 단계나 면 이어 보이기가 바뀌었을 때만 다시 만든다.
+  const key = `${mesh.userData.subdivision ?? 0}/${mesh.userData.smooth ?? "auto"}`;
+  if (mesh.userData.geometryKey !== key) rebuildGeometry(mesh);
   mesh.position.fromArray(data.position);
   mesh.rotation.set(...data.rotation);
   mesh.scale.fromArray(data.scale);
