@@ -19,6 +19,7 @@ import {
   type TourStep,
 } from "@suite/ui";
 import { AI_SYSTEM, AI_TOOL, aiContext, applyAICaptions } from "./ai";
+import { Scopes } from "./Scopes";
 import { EffectControls } from "./EffectControls";
 import { Engine, exportFormats } from "./engine";
 import { canExportExact, exportExact } from "./exactExport";
@@ -98,6 +99,7 @@ export function App() {
   const [pxPerSec, setPxPerSec] = useState(40);
   const [previewScale, setPreviewScale] = useState(0.5);
   const [safeMargins, setSafeMargins] = useState(false);
+  const [scopesOpen, setScopesOpen] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState<{ ratio: number; signal: { cancel: boolean }; exact?: boolean } | null>(null);
   const [newOpen, setNewOpen] = useState(false);
@@ -727,6 +729,7 @@ export function App() {
       items: [
         ...[1, 0.5, 0.25].map((s) => ({ label: `재생 화질: ${s === 1 ? "전체" : s === 0.5 ? "1/2" : "1/4"}${previewScale === s ? " ✓" : ""}`, onSelect: () => setPreviewScale(s) })),
         { label: `안전 영역 ${safeMargins ? "숨기기" : "보이기"}`, onSelect: () => setSafeMargins(!safeMargins) },
+        { label: `루메트리 범위 (파형 · 벡터스코프) ${scopesOpen ? "숨기기" : "보이기"}`, onSelect: () => setScopesOpen(!scopesOpen) },
       ],
     },
     {
@@ -789,6 +792,11 @@ export function App() {
               </p>
             )}
           </Panel>
+          {scopesOpen && (
+            <Panel title="루메트리 범위">
+              <Scopes source={canvasRef} time={time} project={project} playing={playing} />
+            </Panel>
+          )}
           {aiOpen && (
             <AIAssistantPanel
               app="video"
