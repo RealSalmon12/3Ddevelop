@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ModelerScene } from "./ModelerScene";
 import { EXAMPLES } from "./examples";
+import { IMPORT_FILTER, importModel } from "./importers";
 import { EXPORT_FORMATS, ROBLOX_TRIANGLE_LIMIT, exportScene, robloxProblems, type ExportFormat } from "./exporters";
 
 const PROJECT_FILTER = { name: "바코 빙산 프로젝트", extensions: ["nmodel"] };
@@ -116,5 +117,28 @@ export function useProjectFile(model: ModelerScene, dirty: boolean, notify: (mes
     else if (result.reason === "error") notify(`내보내지 못했어요. ${result.message ?? ""}`);
   }, [model, name, notify]);
 
-  return { name, newFile, openExample, open, save, exportAs, exportForRoblox };
+  /** 다른 프로그램의 모델(GLB, OBJ, STL)을 지금 장면에 더한다 */
+  const importFile = useCallback(async () => {
+    if (!window.suite) return;
+    const result = await window.suite.files.open({ filters: [IMPORT_FILTER], binary: true });
+    if (!result.ok) {
+      if (result.reason === "error") notify(`파일을 열지 못했어요. ${result.message ?? ""}`);
+      return;
+    }
+    try {
+      const bin = atob(result.text);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const ext = result.path.split(".").pop() ?? "";
+      const { parts, triangles, scaled } = await importModel(bytes, ext);
+      model.importParts(parts);
+      notify(
+        `‘${baseName(result.path)}’ 을(를) 가져왔어요 (조각 ${parts.length}개, 삼각형 ${triangles.toLocaleString()}개)${scaled ? ". 너무 크거나 작아서 2m 쯤으로 맞췄어요" : ""}. Tab 으로 편집할 수 있어요.`,
+      );
+    } catch (err) {
+      notify(err instanceof Error ? `가져오지 못했어요. ${err.message}` : "가져오지 못했어요.");
+    }
+  }, [model, notify]);
+
+  return { name, newFile, openExample, open, save, exportAs, exportForRoblox, importFile };
 }

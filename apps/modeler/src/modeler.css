@@ -267,3 +267,8 @@
 .render-actions { display: flex; gap: 8px; }
 .render-actions .suite-button { flex: 1; }
 .suite-button.ghost { background: var(--bg-raised); color: var(--text); }
+
+/* 불리언 */
+.boolean-ops { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 6px 0; }
+.boolean-ops .prop-small-button { padding: 6px 4px; white-space: nowrap; }
+.boolean-keep { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); cursor: pointer; }

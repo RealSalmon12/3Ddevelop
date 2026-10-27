@@ -5,6 +5,7 @@ import { edgeLoop, edgeRing, loopCut } from "../mesh/loops";
 import { MAX_SUBDIVISION } from "../mesh/subdivision";
 import { AXES, applyModifiers, hasModifiers, type ArrayModifier, type Axis, type Modifiers } from "../mesh/modifiers";
 import * as ops from "../mesh/operations";
+import { booleanPoly, type BooleanOp } from "../mesh/boolean";
 import { add, centroid, cloneMesh, edgeKey, faceNormal, sub, type PolyMesh, type Vec3 } from "../mesh/PolyMesh";
 import {
   convertSelection,
@@ -644,6 +645,41 @@ export class ModelerScene {
     this.editVersion++;
     this.commit();
     return true;
+  }
+
+  /**
+   * 불리언: 고른 오브젝트에 다른 오브젝트를 합치거나 빼거나 겹친 곳만 남긴다. 두 오브젝트의 모디파이어는 굳힌 모양으로 계산한다.
+   * 쓴 오브젝트는 로블록스처럼 없어진다. keepCutter 면 지우지 않고 숨겨 둔다 (숨긴 것도 내보내기에 들어가니 주의).
+   */
+  booleanWith(otherId: string, op: BooleanOp, keepCutter = false): "ok" | "empty" | "invalid" {
+    this.exitEditSilently();
+    const a = this.getMesh(this.selectedId);
+    const b = this.getMesh(otherId);
+    if (!a || !b || a === b || a.userData.kind === "effect" || b.userData.kind === "effect") return "invalid";
+    a.updateMatrix();
+    b.updateMatrix();
+    const shape = (m: THREE.Mesh) => applyModifiers(m.userData.poly as PolyMesh, modifiersOf(m));
+    const result = booleanPoly(shape(a), a.matrix, shape(b), b.matrix, op);
+    if (!result) return "empty";
+    a.userData.poly = result;
+    a.userData.subdivision = undefined;
+    a.userData.mirror = undefined;
+    a.userData.array = undefined;
+    rebuildGeometry(a);
+    if (keepCutter) b.visible = false;
+    else this.disposeMesh(otherId);
+    this.commit();
+    return "ok";
+  }
+
+  /** 가져온 모델 조각들을 오브젝트로 넣는다. 한 번의 실행 취소로 묶인다. */
+  importParts(parts: { name: string; poly: PolyMesh; color: string }[]) {
+    this.exitEditSilently();
+    let last: string | null = null;
+    for (const p of parts)
+      last = this.createMesh({ id: crypto.randomUUID(), name: p.name, kind: "cube", position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], color: p.color, mesh: p.poly });
+    this.selectedId = last;
+    this.commit();
   }
 
   /** Ctrl+0~3: 고른 오브젝트를 매끈하게 하는 단계 */

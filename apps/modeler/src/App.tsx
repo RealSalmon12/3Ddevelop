@@ -24,6 +24,7 @@ import {
 } from "@suite/ui";
 import type { SelectMode } from "./mesh/selection";
 import { PropertiesPanel } from "./panels/PropertiesPanel";
+import { BooleanPanel } from "./panels/BooleanPanel";
 import { RenderDialog } from "./panels/RenderDialog";
 import { AI_SYSTEM, AI_TOOL, applyPlan, sceneContext, type ScenePlan } from "./scene/aiModeling";
 import { EXPORT_FORMATS, triangleCount } from "./scene/exporters";
@@ -215,6 +216,7 @@ export function App() {
           s: () => file.save(e.shiftKey),
           o: () => file.open(),
           n: () => file.newFile(),
+          i: () => void file.importFile(),
           d: () => model.duplicateSelected(),
           m: () => void (model.mirrorSelected() || notify("먼저 대칭으로 복제할 오브젝트를 골라 주세요.")),
           b: () => void (model.bevel() || notify("구멍 없이 닫힌 모양에서만 깎을 수 있어요. 편집 모드에서 써 주세요.")),
@@ -296,6 +298,7 @@ export function App() {
         ...EXAMPLES.map((ex) => ({ label: `예제 열기: ${ex.label}`, onSelect: () => file.openExample(ex) && viewport?.frameSelected() })),
         { label: "저장", shortcut: "Ctrl+S", onSelect: () => file.save() },
         { label: "다른 이름으로 저장…", shortcut: "Ctrl+Shift+S", onSelect: () => file.save(true) },
+        { label: "가져오기 (GLB, OBJ, STL)…", shortcut: "Ctrl+I", onSelect: () => void file.importFile() },
         ...EXPORT_FORMATS.map((f) => ({ label: `내보내기: ${f.label}`, onSelect: () => file.exportAs(f.format) })),
         { label: "로블록스용으로 내보내기 (전체)", onSelect: () => file.exportForRoblox() },
         { label: "로블록스용으로 내보내기 (고른 것만)", onSelect: () => file.exportForRoblox(true) },
@@ -429,6 +432,7 @@ export function App() {
             )}
           </Panel>
           <PropertiesPanel model={model} item={selected} edit={edit} />
+          {selected && !edit && selected.kind !== "effect" && <BooleanPanel model={model} item={selected} items={items} notify={notify} />}
           {aiOpen && (
             <AIAssistantPanel
               app="modeler"
