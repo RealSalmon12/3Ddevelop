@@ -2,7 +2,8 @@ import { applySurface, type Surface } from "./materials";
 import * as THREE from "three";
 import { AUTO_SMOOTH_DEGREES, buildGeometry } from "../mesh/geometry";
 import { edgeLoop, edgeRing, loopCut } from "../mesh/loops";
-import { MAX_SUBDIVISION, subdivide } from "../mesh/subdivision";
+import { MAX_SUBDIVISION } from "../mesh/subdivision";
+import { AXES, applyModifiers, hasModifiers, type ArrayModifier, type Axis, type Modifiers } from "../mesh/modifiers";
 import * as ops from "../mesh/operations";
 import { add, centroid, cloneMesh, edgeKey, faceNormal, sub, type PolyMesh, type Vec3 } from "../mesh/PolyMesh";
 import {
@@ -44,6 +45,10 @@ export interface ObjectData {
    * 보이는 모양과 내보내는 모양만 둥글게 나눈다. 편집 모드에서는 원래 모양의 점을 움직여 다듬는다.
    */
   subdivision?: number;
+  /** 대칭 모디파이어: 이 축들로 비춰 반대쪽을 만든다 (오브젝트 원점 기준) */
+  mirror?: Axis[];
+  /** 배열 모디파이어: 같은 모양을 늘어놓는다 */
+  array?: ArrayModifier;
   /** 면 이어 보이기: auto 는 완만한 곳만 부드럽게, smooth 는 모두 부드럽게, flat 은 모두 각지게 */
   smooth?: SmoothMode;
   /** 모양 (오브젝트 기준 좌표). 처음 버전 파일에는 없어서 kind 로 다시 만든다. */
@@ -624,13 +629,16 @@ export class ModelerScene {
     this.setEditSelection(next);
   }
 
-  /** 매끈하게 단계를 모양에 굳힌다 (블렌더의 모디파이어 적용). 그 뒤로는 잘게 나뉜 점들을 하나하나 고칠 수 있다. */
+  /** 모디파이어(대칭, 배열, 매끈하게)를 모양에 굳힌다 (블렌더의 Apply). 그 뒤로는 생긴 점들을 하나하나 고칠 수 있다. */
   applySubdivision(): boolean {
     const mesh = this.getMesh(this.editingId ?? this.selectedId);
-    const level = (mesh?.userData.subdivision as number | undefined) ?? 0;
-    if (!mesh || level === 0) return false;
-    mesh.userData.poly = subdivide(mesh.userData.poly as PolyMesh, level);
+    if (!mesh) return false;
+    const mods = modifiersOf(mesh);
+    if (!hasModifiers(mods)) return false;
+    mesh.userData.poly = applyModifiers(mesh.userData.poly as PolyMesh, mods);
     mesh.userData.subdivision = undefined;
+    mesh.userData.mirror = undefined;
+    mesh.userData.array = undefined;
     rebuildGeometry(mesh);
     if (this.editingId) this.editSelection = emptySelection(this.editSelection.mode);
     this.editVersion++;
@@ -800,6 +808,8 @@ function toInfo(mesh: THREE.Mesh): ObjectInfo {
     ...(mesh.userData.effect ? { effect: { ...(mesh.userData.effect as EffectSettings) } } : {}),
     ...(mesh.visible ? {} : { hidden: true }),
     ...(mesh.userData.subdivision ? { subdivision: mesh.userData.subdivision as number } : {}),
+    ...(mesh.userData.mirror ? { mirror: [...(mesh.userData.mirror as Axis[])] } : {}),
+    ...(mesh.userData.array ? { array: { ...(mesh.userData.array as ArrayModifier) } } : {}),
     ...(mesh.userData.smooth && mesh.userData.smooth !== "auto" ? { smooth: mesh.userData.smooth as SmoothMode } : {}),
   };
 }
@@ -808,20 +818,33 @@ function toInfo(mesh: THREE.Mesh): ObjectInfo {
  * 원래 모양(poly)에서 화면에 그릴 모양을 만든다. 매끈하게를 켰으면 잘게 나눈 모양을 그리고,
  * 편집 모드에서 점, 선, 면을 클릭으로 찾을 수 있도록 원래 모양 그대로의 것(cage)도 따로 둔다.
  */
+function modifiersOf(mesh: THREE.Mesh): Modifiers {
+  return {
+    mirror: mesh.userData.mirror as Axis[] | undefined,
+    array: mesh.userData.array as ArrayModifier | undefined,
+    subdivision: mesh.userData.subdivision as number | undefined,
+  };
+}
+
+const modifierKey = (mesh: THREE.Mesh) =>
+  `${mesh.userData.subdivision ?? 0}/${mesh.userData.smooth ?? "auto"}/${(mesh.userData.mirror as Axis[] | undefined)?.join("") ?? ""}/${JSON.stringify(mesh.userData.array ?? null)}`;
+
 function rebuildGeometry(mesh: THREE.Mesh) {
   const poly = mesh.userData.poly as PolyMesh;
-  const level = (mesh.userData.subdivision as number | undefined) ?? 0;
+  const mods = modifiersOf(mesh);
+  const level = mods.subdivision ?? 0;
   const smooth = (mesh.userData.smooth as SmoothMode | undefined) ?? "auto";
   // 매끈하게 켠 모양은 기본으로 모두 부드럽게 이어 보인다 (블렌더에서 Shade Smooth 와 같이 쓰는 것처럼).
   const degrees = smooth === "flat" ? 0 : smooth === "smooth" || level > 0 ? 180 : AUTO_SMOOTH_DEGREES;
-  const display = level > 0 ? subdivide(poly, level) : poly;
+  const modified = hasModifiers(mods);
+  const display = modified ? applyModifiers(poly, mods) : poly;
 
   mesh.geometry.dispose();
   (mesh.userData.cage as THREE.BufferGeometry | undefined)?.dispose();
   mesh.geometry = buildGeometry(display, degrees);
-  mesh.userData.displayPoly = level > 0 ? display : undefined;
-  mesh.userData.cage = level > 0 ? buildGeometry(poly) : undefined;
-  mesh.userData.geometryKey = `${level}/${smooth}`;
+  mesh.userData.displayPoly = modified ? display : undefined;
+  mesh.userData.cage = modified ? buildGeometry(poly) : undefined;
+  mesh.userData.geometryKey = modifierKey(mesh);
 }
 
 /** 편집 모드에서 클릭한 면을 찾을 모양 (원래 모양 그대로) */
@@ -835,10 +858,15 @@ function applyData(mesh: THREE.Mesh, data: ObjectInfo) {
   if (data.kind !== "effect") {
     mesh.userData.subdivision = Math.max(0, Math.min(MAX_SUBDIVISION, Math.round(data.subdivision ?? 0))) || undefined;
     mesh.userData.smooth = data.smooth && data.smooth !== "auto" ? data.smooth : undefined;
+    const mirror = (data.mirror ?? []).filter((a) => AXES.includes(a));
+    mesh.userData.mirror = mirror.length ? AXES.filter((a) => mirror.includes(a)) : undefined;
+    mesh.userData.array =
+      data.array && data.array.count > 1
+        ? { count: Math.max(2, Math.min(64, Math.round(data.array.count))), offset: data.array.offset.map((v) => Number(v) || 0) as Vec3 }
+        : undefined;
   }
   // 매끈하게 단계나 면 이어 보이기가 바뀌었을 때만 다시 만든다.
-  const key = `${mesh.userData.subdivision ?? 0}/${mesh.userData.smooth ?? "auto"}`;
-  if (mesh.userData.geometryKey !== key) rebuildGeometry(mesh);
+  if (mesh.userData.geometryKey !== modifierKey(mesh)) rebuildGeometry(mesh);
   mesh.position.fromArray(data.position);
   mesh.rotation.set(...data.rotation);
   mesh.scale.fromArray(data.scale);
