@@ -3,8 +3,10 @@ import type { PixelDoc } from "./doc/PixelDoc";
 import type { Example } from "./doc/examples";
 import { encodeGif } from "./doc/gif";
 import { parsePalette, paletteToHex } from "./doc/palettes";
+import { readAseprite, writeAseprite } from "./doc/aseprite";
 
 const PROJECT_FILTER = { name: "바코 눈꽃 파일", extensions: ["npixel"] };
+const ASE_FILTER = { name: "에이스프라이트", extensions: ["aseprite", "ase"] };
 const IMAGE_FILTER = { name: "그림 파일", extensions: ["png", "jpg", "jpeg", "gif", "bmp", "webp"] };
 
 const baseName = (path: string) => path.split(/[\\/]/).pop()!.replace(/\.[^.]+$/, "");
@@ -136,14 +138,24 @@ export function useFile(doc: PixelDoc, dirty: boolean, notify: (message: string)
 
   const open = useCallback(async () => {
     if (!window.suite || !confirmDiscard()) return;
-    const result = await window.suite.files.open({ filters: [PROJECT_FILTER] });
+    const result = await window.suite.files.open({ filters: [{ name: "바코 눈꽃, 에이스프라이트", extensions: ["npixel", "aseprite", "ase"] }, PROJECT_FILTER, ASE_FILTER], binary: true });
     if (!result.ok) {
       if (result.reason === "error") notify(`파일을 열지 못했어요. ${result.message ?? ""}`);
       return;
     }
     try {
-      doc.load(result.text);
-      setFilePath(result.path);
+      const bytes = Uint8Array.from(atob(result.text), (ch) => ch.charCodeAt(0));
+      if (/\.(aseprite|ase)$/i.test(result.path)) {
+        const { json, notes } = await readAseprite(bytes);
+        doc.load(json);
+        // 에이스프라이트 파일은 덮어쓰지 않고, 저장하면 .npixel 로
+        setFilePath(null);
+        const snap = doc.getSnapshot();
+        notify(`에이스프라이트 파일을 열었어요 (레이어 ${snap.layers.length}개, 프레임 ${snap.frames.length}장${snap.tags.length ? `, 태그 ${snap.tags.length}개` : ""}).${notes.length ? ` ${notes.join(", ")}.` : ""}`);
+      } else {
+        doc.load(new TextDecoder().decode(bytes));
+        setFilePath(result.path);
+      }
       onNewSize();
     } catch (err) {
       notify(err instanceof Error ? err.message : "파일을 열지 못했어요.");
@@ -219,6 +231,14 @@ export function useFile(doc: PixelDoc, dirty: boolean, notify: (message: string)
     if (r.ok) notify("팔레트를 저장했어요.");
   }, [doc, name, notify]);
 
+  const exportAseprite = useCallback(async () => {
+    if (!window.suite) return;
+    const data = await writeAseprite(doc);
+    const r = await window.suite.files.save({ defaultName: `${name}.aseprite`, filters: [ASE_FILTER], data });
+    if (r.ok) notify("에이스프라이트 파일로 저장했어요. 레이어, 프레임, 태그가 그대로 들어가요.");
+    else if (r.reason === "error") notify(`저장하지 못했어요. ${r.message ?? ""}`);
+  }, [doc, name, notify]);
+
   const importImage = useCallback(async () => {
     if (!window.suite) return;
     const result = await window.suite.files.open({ filters: [IMAGE_FILTER], binary: true });
@@ -263,5 +283,5 @@ export function useFile(doc: PixelDoc, dirty: boolean, notify: (message: string)
     }
   }, [doc, notify]);
 
-  return { name, newFile, openExample, open, save, exportImage, exportPng, importImage, importSheet, loadPalette, savePalette };
+  return { name, newFile, openExample, open, save, exportImage, exportPng, exportAseprite, importImage, importSheet, loadPalette, savePalette };
 }
