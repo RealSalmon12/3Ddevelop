@@ -9,9 +9,11 @@ import {
   Toast,
   Toolbar,
   Tour,
+  UpdateButton,
   isTourOpen,
   useToast,
   useTour,
+  useUpdater,
   type Menu,
   type Tool,
   type ToolAction,
@@ -93,6 +95,7 @@ export function App() {
   const [toast, notify] = useToast();
   const file = useProjectFile(model, dirty, notify);
   const tour = useTour("modeler");
+  const updater = useUpdater(notify);
   const onViewportReady = useCallback((v: ViewportRenderer | null) => setViewport(v), []);
 
   useEffect(() => viewport?.setTool(tool), [viewport, tool]);
@@ -200,6 +203,7 @@ export function App() {
       items: [
         { label: "따라하기 안내 다시 보기", onSelect: tour.start },
         { label: "단축키 보기", onSelect: () => window.alert(SHORTCUT_HELP) },
+        { label: "업데이트 확인", onSelect: () => void updater.check(true) },
       ],
     },
   ];
@@ -218,6 +222,7 @@ export function App() {
               <button className="suite-menubar-action history-button" disabled={!canRedo} title="다시 실행 (Ctrl+Y)" onClick={() => model.redo()}>
                 ↷
               </button>
+              <UpdateButton updater={updater} hasUnsavedWork={dirty} />
               <button className="suite-menubar-action ai" aria-pressed={aiOpen} onClick={() => setAiOpen(!aiOpen)}>
                 ✨ AI 도우미
               </button>

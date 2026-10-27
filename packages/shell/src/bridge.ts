@@ -48,6 +48,22 @@ export type OpenFileResult =
   | { ok: true; path: string; text: string }
   | { ok: false; reason: "canceled" | "error"; message?: string };
 
+export interface UpdateInfo {
+  /** 새 빌드 번호 */
+  build: number;
+  /** 설치 파일 크기 (바이트) */
+  size: number;
+  url: string;
+  /** 릴리스 페이지 주소 */
+  page: string;
+}
+
+export type UpdateCheckResult =
+  | { ok: true; current: number; update: UpdateInfo | null; dev?: boolean }
+  | { ok: false; message: string };
+
+export type UpdateInstallResult = { ok: true } | { ok: false; message: string };
+
 export interface SuiteBridge {
   appId: string;
   platform: string;
@@ -65,6 +81,11 @@ export interface SuiteBridge {
     save(request: SaveFileRequest): Promise<SaveFileResult>;
     open(request: OpenFileRequest): Promise<OpenFileResult>;
   };
+  updates: {
+    check(): Promise<UpdateCheckResult>;
+    /** 받는 동안 0~1 진행률을 알려 주고, 성공하면 앱이 닫혔다가 새 버전으로 다시 열린다. */
+    install(onProgress: (ratio: number) => void): Promise<UpdateInstallResult>;
+  };
 }
 
 export const IPC = {
@@ -74,6 +95,9 @@ export const IPC = {
   fileSave: "suite:file-save",
   fileOpen: "suite:file-open",
   setDirty: "suite:set-dirty",
+  updateCheck: "suite:update-check",
+  updateInstall: "suite:update-install",
+  updateProgress: "suite:update-progress",
 } as const;
 
 declare global {
