@@ -23,6 +23,7 @@ import type { SelectMode } from "./mesh/selection";
 import { PropertiesPanel } from "./panels/PropertiesPanel";
 import { AI_SYSTEM, AI_TOOL, applyPlan, sceneContext, type ScenePlan } from "./scene/aiModeling";
 import { EXPORT_FORMATS, triangleCount } from "./scene/exporters";
+import { EXAMPLES } from "./scene/examples";
 import { ModelerScene } from "./scene/ModelerScene";
 import { SHAPES } from "./scene/shapes";
 import { EFFECTS } from "./effects/particles";
@@ -142,6 +143,9 @@ export function App() {
         return;
       }
       if (e.altKey) return;
+      // 숫자패드는 블렌더처럼 시점 바꾸기. 위쪽 숫자 1/2/3 (점/선/면) 과 겹치지 않게 code 로 구분한다.
+      const views = { Numpad1: "front", Numpad3: "right", Numpad7: "top" } as const;
+      if (e.code in views) return viewport?.setView(views[e.code as keyof typeof views]);
       if (key === "tab") {
         e.preventDefault();
         explainEdit(model.toggleEdit());
@@ -171,10 +175,12 @@ export function App() {
       items: [
         { label: "새로 만들기", shortcut: "Ctrl+N", onSelect: file.newFile },
         { label: "열기…", shortcut: "Ctrl+O", onSelect: file.open },
+        ...EXAMPLES.map((ex) => ({ label: `예제 열기: ${ex.label}`, onSelect: () => file.openExample(ex) && viewport?.frameSelected() })),
         { label: "저장", shortcut: "Ctrl+S", onSelect: () => file.save() },
         { label: "다른 이름으로 저장…", shortcut: "Ctrl+Shift+S", onSelect: () => file.save(true) },
         ...EXPORT_FORMATS.map((f) => ({ label: `내보내기: ${f.label}`, onSelect: () => file.exportAs(f.format) })),
-        { label: "로블록스용으로 내보내기", onSelect: () => file.exportForRoblox() },
+        { label: "로블록스용으로 내보내기 (전체)", onSelect: () => file.exportForRoblox() },
+        { label: "로블록스용으로 내보내기 (고른 것만)", onSelect: () => file.exportForRoblox(true) },
       ],
     },
     {
@@ -200,8 +206,11 @@ export function App() {
       items: [
         { label: bloom ? "빛 번짐 끄기" : "빛 번짐 켜기", onSelect: () => setBloom(!bloom) },
         { label: snap ? "칸에 맞춰 움직이기 끄기" : "칸에 맞춰 움직이기 켜기", shortcut: "G", onSelect: () => setSnap(!snap) },
+        { label: "앞에서 보기", shortcut: "숫자패드 1", onSelect: () => viewport?.setView("front") },
+        { label: "옆에서 보기", shortcut: "숫자패드 3", onSelect: () => viewport?.setView("right") },
+        { label: "위에서 보기", shortcut: "숫자패드 7", onSelect: () => viewport?.setView("top") },
         { label: "처음 시점으로", shortcut: "Home", onSelect: () => viewport?.resetView() },
-        { label: "선택한 것 가운데로", shortcut: ".", onSelect: () => viewport?.frameSelected() },
+        { label: "선택한 것 (없으면 전체) 가운데로", shortcut: ".", onSelect: () => viewport?.frameSelected() },
       ],
     },
     {
@@ -304,6 +313,12 @@ export function App() {
           ]}
         />
         {edit && <Segmented label="고르는 단위" value={edit.mode} onChange={(m) => model.setSelectMode(m)} options={SELECT_MODES} />}
+      </div>
+      <div className="view-buttons" role="group" aria-label="시점">
+        <button title="앞에서 보기 (숫자패드 1)" onClick={() => viewport?.setView("front")}>앞</button>
+        <button title="옆에서 보기 (숫자패드 3)" onClick={() => viewport?.setView("right")}>옆</button>
+        <button title="위에서 보기 (숫자패드 7)" onClick={() => viewport?.setView("top")}>위</button>
+        <button title="처음 시점으로 (Home)" onClick={() => viewport?.resetView()}>⌂</button>
       </div>
       <Toast message={toast} />
       <Tour steps={TOUR_STEPS} open={tour.open} onFinish={tour.finish} />

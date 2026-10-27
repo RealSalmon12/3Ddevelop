@@ -12,10 +12,16 @@ export const EXPORT_FORMATS: { format: ExportFormat; label: string; filterName: 
 ];
 
 /** 장면을 다른 프로그램에서 쓸 수 있는 파일 내용으로 바꾼다. */
-export async function exportScene(source: THREE.Object3D, format: ExportFormat): Promise<string | Uint8Array> {
+export async function exportScene(
+  source: THREE.Object3D,
+  format: ExportFormat,
+  only?: (child: THREE.Object3D) => boolean,
+): Promise<string | Uint8Array> {
   // 이펙트 표시와 입자는 다른 프로그램에서 쓸 수 없어서 뺀다.
   const root = source.clone(false);
-  source.children.filter((c) => c.userData.kind !== "effect").forEach((c) => root.add(c.clone()));
+  source.children
+    .filter((c) => c.userData.kind !== "effect" && (!only || only(c)))
+    .forEach((c) => root.add(c.clone()));
   root.updateMatrixWorld(true);
   switch (format) {
     case "obj":

@@ -209,14 +209,25 @@ export class ViewportRenderer {
     this.orbit.target.set(0, 0.5, 0);
   }
 
-  /** 선택한 오브젝트가 화면 가운데 오도록 맞추기 */
+  /** 정면, 오른쪽, 위에서 똑바로 보기. 지금 보던 거리는 그대로 둔다. */
+  setView(view: "front" | "right" | "top") {
+    const dir = { front: [0, 0, 1], right: [1, 0, 0], top: [0, 1, 0.0001] }[view];
+    const distance = this.camera.position.distanceTo(this.orbit.target);
+    this.camera.position.copy(this.orbit.target).addScaledVector(new THREE.Vector3(...dir).normalize(), distance);
+    this.camera.lookAt(this.orbit.target);
+  }
+
+  /** 선택한 오브젝트가 화면 가운데 오도록 맞추기. 아무것도 안 골랐으면 장면 전체를 맞춘다. */
   frameSelected() {
     const mesh = this.model.getMesh(this.model.getSnapshot().selectedId);
-    if (!mesh) return this.resetView();
-    const sphere = new THREE.Box3().setFromObject(mesh).getBoundingSphere(new THREE.Sphere());
+    const targets = mesh ? [mesh] : this.model.allMeshes().filter((m) => m.userData.kind !== "effect");
+    if (targets.length === 0) return this.resetView();
+    const box = new THREE.Box3();
+    targets.forEach((m) => box.expandByObject(m));
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
     const dir = this.camera.position.clone().sub(this.orbit.target).normalize();
     this.orbit.target.copy(sphere.center);
-    this.camera.position.copy(sphere.center).addScaledVector(dir, Math.max(sphere.radius * 3.5, 1.5));
+    this.camera.position.copy(sphere.center).addScaledVector(dir, Math.max(sphere.radius * (mesh ? 3.5 : 2.4), 1.5));
   }
 
   private syncSelection() {
