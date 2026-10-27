@@ -19,6 +19,7 @@ import {
 } from "../mesh/selection";
 import { EFFECTS, ParticleSystem, type EffectSettings, type EffectType } from "../effects/particles";
 import { createShape, SHAPES, type ShapeKind } from "./shapes";
+import { cloneKeys, DEFAULT_ANIM, sampleKeys, upsertKey, type AnimSettings, type Interp, type Keyframe } from "./animation";
 
 
 
@@ -52,6 +53,8 @@ export interface ObjectData {
   array?: ArrayModifier;
   /** 면 이어 보이기: auto 는 완만한 곳만 부드럽게, smooth 는 모두 부드럽게, flat 은 모두 각지게 */
   smooth?: SmoothMode;
+  /** 키프레임 애니메이션 (프레임 순서) */
+  keys?: Keyframe[];
   /** 모양 (오브젝트 기준 좌표). 처음 버전 파일에는 없어서 kind 로 다시 만든다. */
   mesh?: PolyMesh;
 }
@@ -66,6 +69,8 @@ export interface SceneDocument {
   app: "modeler";
   version: 1 | 2;
   objects: ObjectData[];
+  /** 애니메이션 설정 (없으면 24fps, 120 프레임) */
+  anim?: AnimSettings;
 }
 
 export interface EditState {
@@ -88,6 +93,8 @@ export interface SceneSnapshot {
   canRedo: boolean;
   /** 마지막 저장 뒤 바뀐 것이 있는지 */
   dirty: boolean;
+  /** 타임라인 */
+  anim: AnimSettings & { frame: number; autoKey: boolean };
 }
 
 const DEFAULT_COLOR = "#b8bcc4";
@@ -117,6 +124,9 @@ export class ModelerScene {
   private current: string;
   private saved: string;
   private snapshot!: SceneSnapshot;
+  private anim: AnimSettings = { ...DEFAULT_ANIM };
+  private frame = 0;
+  private autoKey = false;
 
   constructor() {
     this.current = this.saved = this.serialize();
@@ -140,6 +150,7 @@ export class ModelerScene {
       canUndo: this.past.length > 0,
       canRedo: this.future.length > 0,
       dirty: this.current !== this.saved,
+      anim: { ...this.anim, frame: this.frame, autoKey: this.autoKey },
     };
     this.listeners.forEach((l) => l());
   }
@@ -158,6 +169,7 @@ export class ModelerScene {
 
   /** 지금 상태를 실행 취소 기록에 남긴다. 변경이 끝날 때마다 부른다. */
   commit() {
+    if (this.autoKey) this.autoKeySelected();
     const next = this.serialize();
     if (next !== this.current) {
       this.past.push(this.current);
@@ -182,6 +194,118 @@ export class ModelerScene {
     this.past.push(this.current);
     this.current = next;
     this.restore(next);
+  }
+
+  // ---------- 애니메이션 ----------
+
+  /** 키가 있는 오브젝트를 지금 프레임의 모습으로 */
+  private applyFrame() {
+    for (const mesh of this.meshes.values()) {
+      const pose = sampleKeys(mesh.userData.keys as Keyframe[] | undefined, this.frame);
+      if (!pose) continue;
+      mesh.position.fromArray(pose.position);
+      mesh.rotation.set(...pose.rotation);
+      mesh.scale.fromArray(pose.scale);
+    }
+  }
+
+  /** 프레임 옮기기 (실행 취소 기록에는 남기지 않는다) */
+  setFrame(frame: number) {
+    const f = Math.max(0, Math.min(this.anim.end, Math.round(frame)));
+    if (f === this.frame) return;
+    this.frame = f;
+    this.applyFrame();
+    this.refresh();
+  }
+
+  setAnim(patch: Partial<AnimSettings>) {
+    this.anim = {
+      fps: Math.max(1, Math.min(120, Math.round(patch.fps ?? this.anim.fps))),
+      end: Math.max(1, Math.min(100000, Math.round(patch.end ?? this.anim.end))),
+    };
+    this.frame = Math.min(this.frame, this.anim.end);
+    this.applyFrame();
+    this.commit();
+  }
+
+  setAutoKey(on: boolean) {
+    this.autoKey = on;
+    this.refresh();
+  }
+
+  private poseKey(mesh: THREE.Mesh): Keyframe {
+    return { frame: this.frame, position: vec(mesh.position), rotation: vec(mesh.rotation), scale: vec(mesh.scale) };
+  }
+
+  /** I: 고른 오브젝트의 지금 모습을 이 프레임에 기록 */
+  insertKey(): boolean {
+    const mesh = this.getMesh(this.selectedId);
+    if (!mesh || this.editingId) return false;
+    mesh.userData.keys = upsertKey(mesh.userData.keys as Keyframe[] | undefined, this.poseKey(mesh));
+    this.commit();
+    return true;
+  }
+
+  /** Alt+I: 이 프레임의 키 지우기 */
+  deleteKey(): boolean {
+    const mesh = this.getMesh(this.selectedId);
+    const keys = mesh?.userData.keys as Keyframe[] | undefined;
+    if (!mesh || !keys?.some((k) => k.frame === this.frame)) return false;
+    const left = keys.filter((k) => k.frame !== this.frame);
+    mesh.userData.keys = left.length ? left : undefined;
+    this.applyFrame();
+    this.commit();
+    return true;
+  }
+
+  /** 고른 오브젝트의 애니메이션을 모두 지운다 (지금 모습은 그대로) */
+  clearKeys(): boolean {
+    const mesh = this.getMesh(this.selectedId);
+    if (!mesh?.userData.keys) return false;
+    mesh.userData.keys = undefined;
+    this.commit();
+    return true;
+  }
+
+  /** 타임라인에서 키를 끌어 옮길 때. done 이 아니면 기록 없이 화면만. 겹치는 키는 옮긴 것으로 바뀐다. */
+  moveKey(from: number, to: number, done: boolean) {
+    const mesh = this.getMesh(this.selectedId);
+    const keys = mesh?.userData.keys as Keyframe[] | undefined;
+    const key = keys?.find((k) => k.frame === from);
+    if (!mesh || !keys || !key) return;
+    const target = Math.max(0, Math.min(this.anim.end, Math.round(to)));
+    if (target !== from) mesh.userData.keys = upsertKey(keys.filter((k) => k !== key), { ...key, frame: target });
+    this.applyFrame();
+    if (done) this.commit();
+    else this.refresh();
+  }
+
+  setInterp(frame: number, interp: Interp) {
+    const mesh = this.getMesh(this.selectedId);
+    const keys = mesh?.userData.keys as Keyframe[] | undefined;
+    if (!mesh || !keys) return;
+    mesh.userData.keys = keys.map((k) => (k.frame === frame ? { ...k, interp } : k));
+    this.applyFrame();
+    this.commit();
+  }
+
+  /** 모든 오브젝트의 키 프레임 (앞뒤 키로 건너뛰기용) */
+  keyFrames(): number[] {
+    const set = new Set<number>();
+    for (const m of this.meshes.values()) for (const k of (m.userData.keys as Keyframe[] | undefined) ?? []) set.add(k.frame);
+    return [...set].sort((a, b) => a - b);
+  }
+
+  /** 자동 키: 고른 오브젝트가 지난 기록과 다른 곳에 있으면 이 프레임에 키를 넣는다 */
+  private autoKeySelected() {
+    const mesh = this.getMesh(this.selectedId);
+    if (!mesh || this.editingId || mesh.userData.kind === "effect") return;
+    const prev = (JSON.parse(this.current) as SceneDocument).objects.find((o) => o.id === mesh.userData.id);
+    const now = this.poseKey(mesh);
+    const same = (a?: Vec3, b?: Vec3) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) < 1e-4);
+    if (!prev) return; // 막 만든 오브젝트에는 넣지 않는다
+    if (same(prev.position, now.position) && same(prev.rotation, now.rotation) && same(prev.scale, now.scale)) return;
+    mesh.userData.keys = upsertKey(mesh.userData.keys as Keyframe[] | undefined, now);
   }
 
   // ---------- 오브젝트 ----------
@@ -389,6 +513,7 @@ export class ModelerScene {
 
   serialize(): string {
     const doc: SceneDocument = { app: "modeler", version: 2, objects: [...this.meshes.values()].map(toData) };
+    if (this.anim.fps !== DEFAULT_ANIM.fps || this.anim.end !== DEFAULT_ANIM.end) doc.anim = { ...this.anim };
     return JSON.stringify(doc);
   }
 
@@ -407,6 +532,7 @@ export class ModelerScene {
     }
     this.selectedId = null;
     this.exitEditSilently();
+    this.frame = 0;
     this.restore(JSON.stringify(doc), false);
     this.current = this.saved = this.serialize();
     this.past = [];
@@ -774,6 +900,12 @@ export class ModelerScene {
     for (const id of [...this.meshes.keys()]) this.disposeMesh(id);
     const doc = JSON.parse(text) as SceneDocument;
     doc.objects.forEach((data) => this.createMesh(data));
+    this.anim = {
+      fps: Math.max(1, Math.min(120, Math.round(doc.anim?.fps ?? DEFAULT_ANIM.fps))),
+      end: Math.max(1, Math.min(100000, Math.round(doc.anim?.end ?? DEFAULT_ANIM.end))),
+    };
+    this.frame = Math.min(this.frame, this.anim.end);
+    this.applyFrame();
     if (this.selectedId && !this.meshes.has(this.selectedId)) this.selectedId = null;
     if (this.editingId) {
       // 되돌린 뒤에는 점 번호가 달라졌을 수 있어서 고른 것을 비운다.
@@ -876,6 +1008,7 @@ function toInfo(mesh: THREE.Mesh): ObjectInfo {
     ...(mesh.userData.mirror ? { mirror: [...(mesh.userData.mirror as Axis[])] } : {}),
     ...(mesh.userData.array ? { array: { ...(mesh.userData.array as ArrayModifier) } } : {}),
     ...(mesh.userData.smooth && mesh.userData.smooth !== "auto" ? { smooth: mesh.userData.smooth as SmoothMode } : {}),
+    ...(mesh.userData.keys ? { keys: cloneKeys(mesh.userData.keys as Keyframe[]) } : {}),
   };
 }
 
@@ -920,6 +1053,7 @@ export function pickGeometry(mesh: THREE.Mesh): THREE.BufferGeometry {
 function applyData(mesh: THREE.Mesh, data: ObjectInfo) {
   mesh.name = data.name;
   mesh.visible = !data.hidden;
+  mesh.userData.keys = data.keys?.length ? cloneKeys(data.keys).sort((a, b) => a.frame - b.frame) : undefined;
   if (data.kind !== "effect") {
     mesh.userData.subdivision = Math.max(0, Math.min(MAX_SUBDIVISION, Math.round(data.subdivision ?? 0))) || undefined;
     mesh.userData.smooth = data.smooth && data.smooth !== "auto" ? data.smooth : undefined;

@@ -86,7 +86,7 @@ export function useProjectFile(model: ModelerScene, dirty: boolean, notify: (mes
       const result = await window.suite.files.save({
         defaultName: `${name}.${format}`,
         filters: [{ name: info.filterName, extensions: [format] }],
-        data: await exportScene(model.root, format),
+        data: await exportScene(model.root, format, undefined, model.getSnapshot().anim),
       });
       if (result.ok) notify(`${format.toUpperCase()} 파일로 내보냈어요.`);
       else if (result.reason === "error") notify(`내보내지 못했어요. ${result.message ?? ""}`);

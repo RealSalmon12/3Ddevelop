@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { OBJExporter } from "three/addons/exporters/OBJExporter.js";
 import { STLExporter } from "three/addons/exporters/STLExporter.js";
+import { buildClip, type AnimSettings, type Keyframe } from "./animation";
 
 export type ExportFormat = "glb" | "obj" | "stl";
 
@@ -16,9 +17,12 @@ export async function exportScene(
   source: THREE.Object3D,
   format: ExportFormat,
   only?: (child: THREE.Object3D) => boolean,
+  /** 있으면 GLB 에 키프레임 애니메이션을 넣는다 */
+  anim?: AnimSettings,
 ): Promise<string | Uint8Array> {
   // 이펙트 표시와 입자는 다른 프로그램에서 쓸 수 없어서 뺀다.
   const root = source.clone(false);
+  const animated: [Keyframe[], THREE.Object3D][] = [];
   source.children
     .filter((c) => c.userData.kind !== "effect" && (!only || only(c)))
     .forEach((c) => {
@@ -27,6 +31,7 @@ export async function exportScene(
       const copy = c.clone(false);
       copy.visible = true;
       root.add(copy);
+      if (c.userData.keys) animated.push([c.userData.keys as Keyframe[], copy]);
     });
   root.updateMatrixWorld(true);
   switch (format) {
@@ -37,7 +42,8 @@ export async function exportScene(
       return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
     }
     case "glb": {
-      const result = await new GLTFExporter().parseAsync(root, { binary: true });
+      const clip = anim && buildClip(animated, anim);
+      const result = await new GLTFExporter().parseAsync(root, { binary: true, ...(clip ? { animations: [clip] } : {}) });
       return new Uint8Array(result as ArrayBuffer);
     }
   }

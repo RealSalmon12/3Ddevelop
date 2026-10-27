@@ -28,6 +28,7 @@ import { BooleanPanel } from "./panels/BooleanPanel";
 import { SculptPanel } from "./panels/SculptPanel";
 import { DEFAULT_SCULPT, SCULPT_BRUSHES, type SculptBrush, type SculptSettings } from "./mesh/sculpt";
 import { RenderDialog } from "./panels/RenderDialog";
+import { Timeline } from "./panels/Timeline";
 import { AI_SYSTEM, AI_TOOL, applyPlan, sceneContext, type ScenePlan } from "./scene/aiModeling";
 import { EXPORT_FORMATS, triangleCount } from "./scene/exporters";
 import { EXAMPLES } from "./scene/examples";
@@ -89,7 +90,8 @@ H 숨기기 · Shift+H 고른 것만 보기 · Alt+H 모두 보이기 · Z 보�
 Ctrl+Z 되돌리기 · Ctrl+Y 다시 실행 · Ctrl+S 저장 · Home 처음 시점 · . 선택한 것 가운데로
 Ctrl+1/2/3 매끈하게 (서브디비전) · Ctrl+0 매끈하게 끄기 · B 박스 선택
 Tab 편집 모드 · 1/2/3 점/선/면 · A 모두 고르기 · Alt+클릭 한 줄 고르기 · E 돌출 · I 안쪽 면 · Ctrl+R 루프 컷 · M 합치기
-O 비례 편집 (G/R/S 중 휠로 반경) · F12 렌더 (PNG, 투명 배경)
+O 비례 편집 (G/R/S 중 휠로 반경) · F12 렌더 (PNG, 투명 배경 · 애니메이션 영상)
+애니메이션: I 키 넣기 · Alt+I 키 지우기 · Space 재생/멈춤 · ←/→ 한 프레임 · ↑/↓ 다음/앞 키 · Shift+←/→ 처음/끝
 조각 모드: X 그리기 · C 찰흙 · S 부드럽게 · G 잡아끌기 · I 부풀리기 · T 평평하게 · P 모으기 · Shift+C 주름 · [ ] 붓 크기 · Shift+[ ] 세기 · Ctrl 반대로 · Shift 부드럽게`;
 
 const SCULPT_KEYS: Record<string, SculptBrush> = { x: "draw", c: "clay", s: "smooth", g: "grab", i: "inflate", t: "flatten", p: "pinch" };
@@ -109,7 +111,7 @@ function createStartScene() {
 
 export function App() {
   const model = useMemo(createStartScene, []);
-  const { items, selectedId, canUndo, canRedo, dirty, edit } = useSyncExternalStore(model.subscribe, model.getSnapshot);
+  const { items, selectedId, canUndo, canRedo, dirty, edit, anim } = useSyncExternalStore(model.subscribe, model.getSnapshot);
   const selected = items.find((i) => i.id === selectedId) ?? null;
   const [viewport, setViewport] = useState<ViewportRenderer | null>(null);
   const [tool, setTool] = useState<ToolId>("move");
@@ -122,6 +124,8 @@ export function App() {
   const [ortho, setOrtho] = useState(false);
   const [sculptOn, setSculptOn] = useState(false);
   const [sculpt, setSculpt] = useState<SculptSettings>(DEFAULT_SCULPT);
+  const [playing, setPlaying] = useState(false);
+  const [timelineOn, setTimelineOn] = useState(true);
   const [search, setSearch] = useState<null | { kind: "all" } | { kind: "add"; at: { x: number; y: number } }>(null);
   const [toast, notify] = useToast(4500);
   const needFaces = "먼저 면을 골라 주세요. 위에서 ‘면’을 누르고 면을 클릭하면 돼요.";
@@ -135,6 +139,37 @@ export function App() {
   /** 화면 기준 마우스 위치. Shift+A 메뉴를 마우스 옆에 띄울 때 쓴다. */
   const pointer = useRef({ x: 0, y: 0 });
   const onViewportReady = useCallback((v: ViewportRenderer | null) => setViewport(v), []);
+
+  // 재생: 실제 시간에 맞춰 프레임을 넘기고, 끝나면 처음부터 다시
+  useEffect(() => {
+    if (!playing) return;
+    const a0 = model.getSnapshot().anim;
+    const f0 = a0.frame >= a0.end ? 0 : a0.frame;
+    const start = performance.now();
+    let id = 0;
+    const tick = (t: number) => {
+      const a = model.getSnapshot().anim;
+      model.setFrame((f0 + Math.floor(((t - start) / 1000) * a.fps)) % (a.end + 1));
+      id = requestAnimationFrame(tick);
+    };
+    id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, [playing, model]);
+  const insertKey = () =>
+    model.insertKey()
+      ? notify(`${model.getSnapshot().anim.frame} 프레임에 키를 넣었어요. 다른 프레임으로 가서 옮기고 I 를 또 누르면 그 사이가 움직여요.`)
+      : notify("먼저 움직일 오브젝트를 골라 주세요 (오브젝트 모드에서).");
+  const deleteKey = () => model.deleteKey() || notify("이 프레임에는 고른 오브젝트의 키가 없어요.");
+  const stepFrame = (d: number) => {
+    setPlaying(false);
+    model.setFrame(model.getSnapshot().anim.frame + d);
+  };
+  const jumpKey = (dir: 1 | -1) => {
+    const f = model.getSnapshot().anim.frame;
+    const all = model.keyFrames();
+    const next = dir > 0 ? all.find((k) => k > f) : [...all].reverse().find((k) => k < f);
+    if (next !== undefined) model.setFrame(next);
+  };
 
   useEffect(() => viewport?.setTool(tool), [viewport, tool]);
   useEffect(() => viewport?.setBloom(bloom), [viewport, bloom]);
@@ -283,6 +318,10 @@ export function App() {
           e.preventDefault();
           model.unhideAll();
         }
+        if (key === "i") {
+          e.preventDefault();
+          deleteKey();
+        }
         return;
       }
       if (key === "tab") {
@@ -303,6 +342,22 @@ export function App() {
         }
         if (MODE_KEYS[key]) return model.setSelectMode(MODE_KEYS[key]);
       }
+      // 애니메이션 (블렌더와 같게)
+      if (key === " ") {
+        e.preventDefault();
+        return setPlaying((p) => !p);
+      }
+      if (key === "arrowleft" || key === "arrowright") {
+        e.preventDefault();
+        const right = key === "arrowright";
+        if (e.shiftKey) return (setPlaying(false), model.setFrame(right ? model.getSnapshot().anim.end : 0));
+        return stepFrame(right ? 1 : -1);
+      }
+      if (key === "arrowup" || key === "arrowdown") {
+        e.preventDefault();
+        return jumpKey(key === "arrowup" ? 1 : -1);
+      }
+      if (key === "i" && !e.shiftKey && !editing) return insertKey();
       if (e.shiftKey) {
         if (key === "a") {
           const p = pointer.current;
@@ -402,8 +457,26 @@ export function App() {
       ],
     },
     {
+      label: "애니메이션",
+      items: [
+        { label: "키 넣기 (지금 모습 기록)", shortcut: "I", disabled: !selected || !!edit, onSelect: insertKey },
+        { label: "이 프레임의 키 지우기", shortcut: "Alt+I", disabled: !selected?.keys?.some((k) => k.frame === anim.frame), onSelect: deleteKey },
+        { label: "고른 오브젝트의 애니메이션 모두 지우기", disabled: !selected?.keys, onSelect: () => model.clearKeys() },
+        { label: playing ? "멈추기" : "재생", shortcut: "Space", onSelect: () => setPlaying(!playing) },
+        { label: "처음 프레임으로", shortcut: "Shift+←", onSelect: () => (setPlaying(false), model.setFrame(0)) },
+        { label: "다음 키로", shortcut: "↑", onSelect: () => jumpKey(1) },
+        { label: "앞 키로", shortcut: "↓", onSelect: () => jumpKey(-1) },
+        { label: anim.autoKey ? "자동 키 끄기" : "자동 키 켜기 (옮길 때마다 키 넣기)", onSelect: () => model.setAutoKey(!anim.autoKey) },
+        { label: timelineOn ? "타임라인 숨기기" : "타임라인 보이기", onSelect: () => setTimelineOn(!timelineOn) },
+        { label: "애니메이션 영상 렌더 (WebM)…", onSelect: () => setRenderOpen(true) },
+      ],
+    },
+    {
       label: "렌더",
-      items: [{ label: "이미지 렌더 (PNG, 투명 배경)", shortcut: "F12", onSelect: () => setRenderOpen(true) }],
+      items: [
+        { label: "이미지 렌더 (PNG, 투명 배경)", shortcut: "F12", onSelect: () => setRenderOpen(true) },
+        { label: "애니메이션 영상 렌더 (WebM)", onSelect: () => setRenderOpen(true) },
+      ],
     },
     {
       label: "도움말",
@@ -552,7 +625,10 @@ export function App() {
         commands={search?.kind === "add" ? addCommands : menuCommands(menus)}
         onClose={() => setSearch(null)}
       />
-      {renderOpen && viewport && <RenderDialog viewport={viewport} name={file.name} notify={notify} onClose={() => setRenderOpen(false)} />}
+      {timelineOn && (
+        <Timeline model={model} anim={anim} items={items} selected={selected} playing={playing} onPlay={() => setPlaying(!playing)} notify={notify} />
+      )}
+      {renderOpen && viewport && <RenderDialog viewport={viewport} model={model} name={file.name} notify={notify} onClose={() => setRenderOpen(false)} />}
       <Toast message={toast} />
       <Tour steps={TOUR_STEPS} open={tour.open} onFinish={tour.finish} />
     </AppFrame>
