@@ -1,11 +1,11 @@
 # 3Ddevelop
 
-초보자도 쉽게 쓸 수 있는 크리에이티브 프로그램 제품군 **누구나 스튜디오**입니다.
+초보자도 쉽게 쓸 수 있는 크리에이티브 프로그램 제품군 **바코 스튜디오**입니다.
 어도비 제품군처럼 용도가 다른 여러 프로그램이 같은 디자인과 같은 AI 도우미를 함께 씁니다.
 
 | 프로그램 | 하는 일 |
 | --- | --- |
-| **누구나 스튜디오 허브** | 제품군 프로그램을 설치하고, 열고, 업데이트하는 곳. AI 키도 여기서 한 번만 넣어요 |
+| **바코 스튜디오 허브** | 제품군 프로그램을 설치하고, 열고, 업데이트하는 곳. AI 키도 여기서 한 번만 넣어요 |
 | **스컬프트 3D** | 3D 모델 만들기, 로블록스로 내보내기 |
 | **도트 아틀리에** | 픽셀 그림, 아이콘, 로블록스 데칼·텍스처 |
 | **루미 포토** | 사진 보정, 글자 넣기, 자르기로 썸네일·게임 아이콘 만들기 |
@@ -16,7 +16,7 @@
 
 ```
 apps/
-  hub/            누구나 스튜디오 허브 (프로그램 설치·실행·업데이트)
+  hub/            바코 스튜디오 허브 (프로그램 설치·실행·업데이트)
   modeler/        스컬프트 3D (Electron + React + three.js)
   pixel/          도트 아틀리에 (Electron + React + Canvas)
   photo/          루미 포토 (Electron + React + Canvas)
@@ -33,11 +33,11 @@ packages/
 
 ## 설치 파일로 설치하기 (가장 쉬움)
 
-1. [Releases](https://github.com/RealSalmon12/3Ddevelop/releases/latest) 에서 `NugunaStudio-Setup-….exe`(**누구나 스튜디오 허브**)를 받아 실행해요.
+1. [Releases](https://github.com/RealSalmon12/3Ddevelop/releases/latest) 에서 `BacoStudio-Setup-….exe`(**바코 스튜디오 허브**)를 받아 실행해요.
 2. 허브를 열면 프로그램 목록이 나와요. 원하는 프로그램의 **설치**를 누르고, 다 되면 **열기**를 눌러요.
 3. 오른쪽 **✨ AI 도우미** 칸에 API 키를 한 번 넣으면 모든 프로그램에서 AI 를 쓸 수 있어요.
 
-허브 없이 프로그램 하나만 받고 싶으면 [모든 릴리스](https://github.com/RealSalmon12/3Ddevelop/releases)에서 `NugunaStudio-3D-Modeler-Setup-….exe` 나 `NugunaStudio-Pixel-Setup-….exe` 를 받아도 돼요.
+허브 없이 프로그램 하나만 받고 싶으면 [모든 릴리스](https://github.com/RealSalmon12/3Ddevelop/releases)에서 `BacoStudio-3D-Modeler-Setup-….exe` 나 `BacoStudio-Pixel-Setup-….exe` 를 받아도 돼요.
 코드가 `main` 에 병합될 때마다 GitHub Actions 가 바뀐 프로그램의 설치 파일을 자동으로 만들어 올려요.
 
 > 아직 코드 서명을 하지 않아서 처음 실행할 때 "Windows의 PC 보호" 창이 뜰 수 있어요. **추가 정보 → 실행** 을 누르면 됩니다.

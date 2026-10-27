@@ -6,7 +6,7 @@ registerHubIpc();
 
 startSuiteApp({
   appId: "hub",
-  title: "누구나 스튜디오",
+  title: "바코 스튜디오",
   preloadPath: path.join(__dirname, "preload.cjs"),
   indexHtmlPath: path.join(__dirname, "../dist/index.html"),
   size: { width: 1180, height: 760, minWidth: 900, minHeight: 600 },

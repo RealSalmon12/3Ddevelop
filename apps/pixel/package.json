@@ -2,7 +2,7 @@
   "name": "@suite/pixel",
   "version": "0.1.0",
   "private": true,
-  "description": "누구나 스튜디오 도트 아틀리에",
+  "description": "바코 스튜디오 도트 아틀리에",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -24,11 +24,11 @@
     "react-dom": "^19.3.1",
     "vite": "^8.3.5"
   },
-  "author": "누구나 스튜디오",
+  "author": "바코 스튜디오",
   "build": {
     "appId": "com.nugunastudio.pixel",
     "productName": "도트 아틀리에",
-    "artifactName": "NugunaStudio-Pixel-Setup-${version}.${ext}",
+    "artifactName": "BacoStudio-Pixel-Setup-${version}.${ext}",
     "directories": {
       "output": "release",
       "buildResources": "build"

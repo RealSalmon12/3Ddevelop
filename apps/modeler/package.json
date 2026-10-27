@@ -2,7 +2,7 @@
   "name": "@suite/modeler",
   "version": "0.1.0",
   "private": true,
-  "description": "누구나 스튜디오 스컬프트 3D",
+  "description": "바코 스튜디오 스컬프트 3D",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -26,11 +26,11 @@
     "three": "^0.186.1",
     "vite": "^8.3.5"
   },
-  "author": "누구나 스튜디오",
+  "author": "바코 스튜디오",
   "build": {
     "appId": "com.nugunastudio.modeler",
     "productName": "스컬프트 3D",
-    "artifactName": "NugunaStudio-3D-Modeler-Setup-${version}.${ext}",
+    "artifactName": "BacoStudio-3D-Modeler-Setup-${version}.${ext}",
     "directories": {
       "output": "release",
       "buildResources": "build"
