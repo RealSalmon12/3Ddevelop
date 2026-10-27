@@ -1,5 +1,6 @@
 import type { AIRequest } from "@suite/shell/bridge";
-import { newTextLayer, NO_ADJUST, renderDoc, type Adjust, type ImageLayer, type PhotoDoc, type TextLayer } from "./doc";
+import { newTextLayer, NO_ADJUST, type QuickAdjust as Adjust, type RasterLayer, type PhotoDoc, type TextLayer } from "./model";
+import { flatten } from "./render";
 
 export const AI_SYSTEM = `당신은 초보자를 돕는 사진 편집 도우미입니다. 사용자는 유튜브 썸네일, 로블록스 게임 아이콘·썸네일 같은 그림을 만듭니다.
 항상 edit_photo 도구로 답하세요. 함께 온 그림이 지금 작업 화면입니다.
@@ -65,21 +66,16 @@ export function aiContext(doc: PhotoDoc) {
   return {
     size: `${doc.width}x${doc.height}`,
     background: doc.background,
-    layers: doc.layers.map((l) => (l.kind === "text" ? { kind: "글자", text: l.text } : { kind: "사진", name: l.name, adjust: l.adjust })),
+    layers: doc.layers.map((l) =>
+      l.kind === "text" ? { kind: "글자", text: l.text } : l.kind === "raster" ? { kind: "사진", name: l.name, adjust: l.adjust } : { kind: l.kind === "adjust" ? "보정 레이어" : "도형", name: l.name },
+    ),
   };
 }
 
 /** AI 가 볼 작은 그림 (긴 쪽 768px JPEG) */
 export function aiImages(doc: PhotoDoc): AIRequest["images"] {
   const scale = Math.min(1, 768 / Math.max(doc.width, doc.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(doc.width * scale);
-  canvas.height = Math.round(doc.height * scale);
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.scale(scale, scale);
-  renderDoc(ctx, doc, () => {});
+  const canvas = flatten({ ...doc, background: doc.background ?? "#ffffff" }, scale);
   return [{ mediaType: "image/jpeg", data: canvas.toDataURL("image/jpeg", 0.8).split(",")[1] }];
 }
 
@@ -89,7 +85,7 @@ export function applyAIEdit(doc: PhotoDoc, edit: AIEdit): PhotoDoc {
   if (edit.adjust) {
     const a = edit.adjust;
     layers = layers.map((l): typeof l => {
-      if (l.kind !== "image") return l;
+      if (l.kind !== "raster") return l;
       const cur = l.adjust;
       const adjust: Adjust = {
         brightness: clamp(a.brightness, 30, 200, cur.brightness),
@@ -99,7 +95,7 @@ export function applyAIEdit(doc: PhotoDoc, edit: AIEdit): PhotoDoc {
         blur: clamp(a.blur, 0, 20, cur.blur),
         grayscale: typeof a.grayscale === "boolean" ? a.grayscale : cur.grayscale,
       };
-      return { ...(l as ImageLayer), adjust };
+      return { ...(l as RasterLayer), adjust };
     });
   }
   if (edit.remove_texts) layers = layers.filter((l) => l.kind !== "text");
