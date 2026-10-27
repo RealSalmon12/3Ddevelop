@@ -302,3 +302,18 @@
 .bin header { flex-wrap: wrap; }
 .bin-tabs button { white-space: nowrap; }
 .fx-group-label { margin: 10px 4px 4px; font-size: 11px; color: var(--text-dim); border-top: 1px solid var(--border, #333); padding-top: 8px; }
+
+/* 루메트리 범위 */
+.scopes { display: flex; flex-direction: column; gap: 6px; }
+.scope-modes { display: flex; flex-wrap: wrap; gap: 4px; }
+.scope-modes button {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.scope-modes button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.scopes canvas { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 6px; image-rendering: auto; }
