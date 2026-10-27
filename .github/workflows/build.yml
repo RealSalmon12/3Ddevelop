@@ -50,6 +50,9 @@ jobs:
           - app: sound
             title: 소리 편집기
             latest: "false"
+          - app: video
+            title: 영상 편집기
+            latest: "false"
     steps:
       - uses: actions/checkout@v4
         with:

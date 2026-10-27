@@ -76,5 +76,8 @@ export const SUITE_APPS: SuiteApp[] = [
     description: "영상을 자르고 자막과 음악을 넣어서 짧은 영상을 만들어요.",
     likeness: "프리미어처럼",
     color: "#ff9f43",
+    tagPrefix: "video-build-",
+    guid: "5eed0071-11eb-5851-8804-0b46fb62d25c",
+    executable: "NugunaVideo.exe",
   },
 ];
