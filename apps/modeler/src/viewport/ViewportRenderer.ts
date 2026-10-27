@@ -1,9 +1,14 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { cloneMesh, edgeKey, meshEdges, type PolyMesh, type Vec3 } from "../mesh/PolyMesh";
 import { emptySelection, selectedVertices, type EditSelection } from "../mesh/selection";
 import type { ModelerScene } from "../scene/ModelerScene";
+import type { ParticleSystem } from "../effects/particles";
 import { EditOverlay } from "./EditOverlay";
 
 export type ToolId = "select" | "move" | "rotate" | "scale";
@@ -35,6 +40,8 @@ export class ViewportRenderer {
     startWorld: Map<number, THREE.Vector3>;
   } | null = null;
   private resizeObserver: ResizeObserver;
+  private composer: EffectComposer;
+  private bloom: UnrealBloomPass;
   private unsubscribe: () => void;
   private frame = 0;
 
@@ -45,8 +52,18 @@ export class ViewportRenderer {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.shadowMap.enabled = true;
+    // 아주 밝은 빛도 하얗게 뭉개지지 않고 색이 남도록
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
+
+    // 빛 번짐: 아주 밝은 부분(빛나는 오브젝트, 불꽃)만 주변으로 번진다.
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.35, 1.4);
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
 
     this.scene.background = new THREE.Color(0x2b2e33);
     this.setupWorld();
@@ -103,10 +120,15 @@ export class ViewportRenderer {
     this.unsubscribe = model.subscribe(() => this.syncSelection());
     this.syncSelection();
 
+    let last = performance.now();
     const loop = () => {
       this.frame = requestAnimationFrame(loop);
+      const now = performance.now();
+      const dt = (now - last) / 1000;
+      last = now;
       this.orbit.update();
-      this.renderer.render(this.scene, this.camera);
+      this.updateParticles(dt);
+      this.composer.render(dt);
     };
     loop();
   }
@@ -161,6 +183,10 @@ export class ViewportRenderer {
       this.transform.getHelper().visible = true;
       this.transform.setMode(tool === "move" ? "translate" : tool);
     }
+  }
+
+  setBloom(enabled: boolean) {
+    this.bloom.enabled = enabled;
   }
 
   /** 처음 시점으로 돌아가기. 길을 잃은 초보자를 위한 버튼. */
@@ -400,10 +426,22 @@ export class ViewportRenderer {
     this.model.select(hit ? hit.object.userData.id : null);
   };
 
+  private updateParticles(dt: number) {
+    const height = this.renderer.domElement.clientHeight;
+    for (const mesh of this.model.allMeshes()) {
+      const particles = mesh.userData.particles as ParticleSystem | undefined;
+      if (!particles) continue;
+      particles.setViewport(height, this.camera.fov);
+      particles.update(dt);
+    }
+  }
+
   private resize() {
     const { clientWidth: w, clientHeight: h } = this.container;
     if (!w || !h) return;
     this.renderer.setSize(w, h);
+    this.composer.setPixelRatio(window.devicePixelRatio);
+    this.composer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -415,6 +453,7 @@ export class ViewportRenderer {
     this.resizeObserver.disconnect();
     this.orbit.dispose();
     this.transform.dispose();
+    this.composer.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }

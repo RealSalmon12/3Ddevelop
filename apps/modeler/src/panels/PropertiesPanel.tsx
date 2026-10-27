@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type * as THREE from "three";
 import { Panel } from "@suite/ui";
+import { EFFECTS, type EffectType, type ParticleSystem } from "../effects/particles";
 import type { EditState, ModelerScene, ObjectData } from "../scene/ModelerScene";
 
 interface PropertiesPanelProps {
@@ -96,7 +97,108 @@ export function PropertiesPanel({ model, item, edit }: PropertiesPanelProps) {
           onCommit={(color) => update({ color })}
         />
       </div>
+      {item.effect ? (
+        <>
+          <div className="prop-row">
+            <span className="prop-label">종류</span>
+            <select
+              className="prop-select"
+              value={item.effect.type}
+              onChange={(e) => update({ effect: { ...item.effect!, type: e.target.value as EffectType } })}
+            >
+              {EFFECTS.map((fx) => (
+                <option key={fx.type} value={fx.type}>
+                  {fx.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <RangeField
+            label="양"
+            value={item.effect.amount}
+            min={0.2}
+            max={3}
+            onPreview={(amount) => particlesOf(item.id) && (particlesOf(item.id)!.settings.amount = amount)}
+            onCommit={(amount) => update({ effect: { ...item.effect!, amount } })}
+          />
+          <RangeField
+            label="빠르기"
+            value={item.effect.speed}
+            min={0.2}
+            max={3}
+            onPreview={(speed) => particlesOf(item.id) && (particlesOf(item.id)!.settings.speed = speed)}
+            onCommit={(speed) => update({ effect: { ...item.effect!, speed } })}
+          />
+        </>
+      ) : (
+        <RangeField
+          label="빛나기"
+          value={item.glow ?? 0}
+          min={0}
+          max={4}
+          onPreview={(glow) => {
+            const material = model.getMesh(item.id)?.material as THREE.MeshStandardMaterial | undefined;
+            if (material) material.emissiveIntensity = glow * 0.6;
+          }}
+          onCommit={(glow) => update({ glow })}
+        />
+      )}
     </Panel>
+  );
+
+  function particlesOf(id: string) {
+    return model.getMesh(id)?.userData.particles as ParticleSystem | undefined;
+  }
+}
+
+/** 끄는 동안은 미리 보기만 하고, 손을 떼면 한 번만 기록하는 슬라이더 */
+function RangeField({
+  label,
+  value,
+  min,
+  max,
+  onPreview,
+  onCommit,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onPreview: (n: number) => void;
+  onCommit: (n: number) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [shown, setShown] = useState(value);
+  const commitRef = useRef(onCommit);
+  commitRef.current = onCommit;
+  useEffect(() => setShown(value), [value]);
+  useEffect(() => {
+    const input = ref.current!;
+    const onChange = () => commitRef.current(Number(input.value));
+    input.addEventListener("change", onChange);
+    return () => input.removeEventListener("change", onChange);
+  }, []);
+
+  return (
+    <div className="prop-row">
+      <span className="prop-label">{label}</span>
+      <div className="prop-range">
+        <input
+          ref={ref}
+          type="range"
+          min={min}
+          max={max}
+          step={0.05}
+          value={shown}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            setShown(n);
+            onPreview(n);
+          }}
+        />
+        <span>{formatNumber(shown)}</span>
+      </div>
+    </div>
   );
 }
 

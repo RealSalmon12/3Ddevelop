@@ -23,6 +23,7 @@ import { AI_SYSTEM, AI_TOOL, applyPlan, sceneContext, type ScenePlan } from "./s
 import { EXPORT_FORMATS } from "./scene/exporters";
 import { ModelerScene } from "./scene/ModelerScene";
 import { SHAPES } from "./scene/shapes";
+import { EFFECTS } from "./effects/particles";
 import { useProjectFile } from "./scene/useProjectFile";
 import { Viewport } from "./viewport/Viewport";
 import type { ToolId, ViewportRenderer } from "./viewport/ViewportRenderer";
@@ -87,12 +88,14 @@ export function App() {
   const [viewport, setViewport] = useState<ViewportRenderer | null>(null);
   const [tool, setTool] = useState<ToolId>("move");
   const [aiOpen, setAiOpen] = useState(true);
+  const [bloom, setBloom] = useState(true);
   const [toast, notify] = useToast();
   const file = useProjectFile(model, dirty, notify);
   const tour = useTour("modeler");
   const onViewportReady = useCallback((v: ViewportRenderer | null) => setViewport(v), []);
 
   useEffect(() => viewport?.setTool(tool), [viewport, tool]);
+  useEffect(() => viewport?.setBloom(bloom), [viewport, bloom]);
 
   const needFaces = "먼저 면을 골라 주세요. 위에서 ‘면’을 누르고 면을 클릭하면 돼요.";
   const editActions: ToolAction[] = [
@@ -174,8 +177,13 @@ export function App() {
       items: SHAPES.map((s) => ({ label: s.label, onSelect: () => model.add(s.kind) })),
     },
     {
+      label: "이펙트",
+      items: EFFECTS.map((fx) => ({ label: `${fx.label}: ${fx.hint}`, onSelect: () => model.addEffect(fx.type) })),
+    },
+    {
       label: "보기",
       items: [
+        { label: bloom ? "빛 번짐 끄기" : "빛 번짐 켜기", onSelect: () => setBloom(!bloom) },
         { label: "처음 시점으로", shortcut: "Home", onSelect: () => viewport?.resetView() },
         { label: "선택한 것 가운데로", shortcut: ".", onSelect: () => viewport?.frameSelected() },
       ],

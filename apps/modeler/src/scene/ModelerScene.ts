@@ -12,6 +12,7 @@ import {
   type EditSelection,
   type SelectMode,
 } from "../mesh/selection";
+import { EFFECTS, ParticleSystem, type EffectSettings, type EffectType } from "../effects/particles";
 import { createShape, SHAPES, type ShapeKind } from "./shapes";
 
 
@@ -27,6 +28,10 @@ export interface ObjectData {
   scale: Vec3;
   /** "#rrggbb" */
   color: string;
+  /** 스스로 빛나는 세기 (0 이면 빛나지 않음). 빛 번짐 효과와 함께 보인다. */
+  glow?: number;
+  /** 이펙트 오브젝트일 때만 */
+  effect?: EffectSettings;
   /** 모양 (오브젝트 기준 좌표). 처음 버전 파일에는 없어서 kind 로 다시 만든다. */
   mesh?: PolyMesh;
 }
@@ -152,7 +157,27 @@ export class ModelerScene {
 
   // ---------- 오브젝트 ----------
 
-  add(kind: ShapeKind): string {
+  /** 연기, 반짝이 같은 이펙트를 바닥 위 빈자리에 놓는다. */
+  addEffect(type: EffectType): string {
+    const info = EFFECTS.find((e) => e.type === type)!;
+    const spot = this.findFreeSpot();
+    const id = this.createMesh({
+      id: crypto.randomUUID(),
+      name: this.uniqueName(info.label),
+      kind: "effect",
+      position: [spot.x, 0, spot.z],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+      color: info.color,
+      effect: { type, amount: 1, speed: 1 },
+    });
+    this.exitEditSilently();
+    this.selectedId = id;
+    this.commit();
+    return id;
+  }
+
+  add(kind: Exclude<ShapeKind, "effect">): string {
     const label = SHAPES.find((s) => s.kind === kind)!.label;
     const mesh = createShape(kind);
     const minY = Math.min(...mesh.vertices.map((v) => v[1]));
@@ -203,7 +228,16 @@ export class ModelerScene {
    */
   applyChanges(changes: {
     remove: string[];
-    upsert: { name: string; kind: ShapeKind; position: Vec3; rotation: Vec3; scale: Vec3; color?: string }[];
+    upsert: {
+      name: string;
+      kind: ShapeKind;
+      position: Vec3;
+      rotation: Vec3;
+      scale: Vec3;
+      color?: string;
+      glow?: number;
+      effect?: EffectSettings;
+    }[];
   }) {
     this.exitEditSilently();
     const byName = new Map([...this.meshes.values()].map((m) => [m.name, m]));
@@ -216,11 +250,13 @@ export class ModelerScene {
     for (const o of changes.upsert) {
       const existing = byName.get(o.name);
       if (existing && existing.userData.kind === o.kind) {
-        applyData(existing, { ...toInfo(existing), ...o, color: o.color ?? toInfo(existing).color });
+        const info = toInfo(existing);
+        applyData(existing, { ...info, ...o, color: o.color ?? info.color, effect: o.effect ? { ...info.effect, ...o.effect } : info.effect });
         lastId = existing.userData.id;
       } else {
         if (existing) this.disposeMesh(existing.userData.id);
-        lastId = this.createMesh({ id: crypto.randomUUID(), ...o, color: o.color ?? DEFAULT_COLOR });
+        const fallback = o.effect ? EFFECTS.find((e) => e.type === o.effect!.type)!.color : DEFAULT_COLOR;
+        lastId = this.createMesh({ id: crypto.randomUUID(), ...o, color: o.color ?? fallback });
         byName.set(o.name, this.meshes.get(lastId)!);
       }
     }
@@ -299,6 +335,8 @@ export class ModelerScene {
 
   enterEdit() {
     if (!this.selectedId || this.editingId) return;
+    // 이펙트는 모양을 고칠 것이 없다.
+    if (this.meshes.get(this.selectedId)?.userData.kind === "effect") return;
     this.editingId = this.selectedId;
     this.editSelection = emptySelection(this.editSelection.mode);
     this.editVersion++;
@@ -466,9 +504,12 @@ export class ModelerScene {
 
   private createMesh(data: ObjectData): string {
     const poly = data.mesh ? cloneMesh(data.mesh) : createShape(data.kind);
+    const isEffect = data.kind === "effect";
     const mesh = new THREE.Mesh(
       buildGeometry(poly),
       new THREE.MeshStandardMaterial({
+        // 이펙트 표시는 뼈대만 보이는 작은 다이아몬드
+        wireframe: isEffect,
         roughness: 0.55,
         metalness: 0.05,
         // 면을 지워 속이 보여도 뒷면이 투명해지지 않게
@@ -482,8 +523,8 @@ export class ModelerScene {
     mesh.userData.poly = poly;
     mesh.userData.id = data.id;
     mesh.userData.kind = data.kind;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    mesh.castShadow = !isEffect;
+    mesh.receiveShadow = !isEffect;
     applyData(mesh, data);
     this.root.add(mesh);
     this.meshes.set(data.id, mesh);
@@ -492,6 +533,7 @@ export class ModelerScene {
 
   private disposeMesh(id: string) {
     const mesh = this.meshes.get(id)!;
+    (mesh.userData.particles as ParticleSystem | undefined)?.dispose();
     this.root.remove(mesh);
     mesh.geometry.dispose();
     (mesh.material as THREE.Material).dispose();
@@ -539,6 +581,8 @@ function toInfo(mesh: THREE.Mesh): ObjectInfo {
     rotation: vec(mesh.rotation),
     scale: vec(mesh.scale),
     color: `#${(mesh.material as THREE.MeshStandardMaterial).color.getHexString()}`,
+    ...(mesh.userData.glow ? { glow: mesh.userData.glow as number } : {}),
+    ...(mesh.userData.effect ? { effect: { ...(mesh.userData.effect as EffectSettings) } } : {}),
   };
 }
 
@@ -547,5 +591,24 @@ function applyData(mesh: THREE.Mesh, data: ObjectInfo) {
   mesh.position.fromArray(data.position);
   mesh.rotation.set(...data.rotation);
   mesh.scale.fromArray(data.scale);
-  (mesh.material as THREE.MeshStandardMaterial).color.set(data.color);
+  const material = mesh.material as THREE.MeshStandardMaterial;
+  material.color.set(data.color);
+  // 빛나기: 자기 색으로 스스로 빛난다. 1 을 넘으면 빛 번짐이 생긴다.
+  const glow = Math.max(0, data.glow ?? 0);
+  mesh.userData.glow = glow || undefined;
+  material.emissive.set(data.color);
+  material.emissiveIntensity = glow * 0.6;
+
+  if (data.effect) {
+    let particles = mesh.userData.particles as ParticleSystem | undefined;
+    if (!particles || particles.settings.type !== data.effect.type) {
+      particles?.dispose();
+      particles = new ParticleSystem({ ...data.effect }, data.color);
+      mesh.userData.particles = particles;
+      mesh.add(particles.points);
+    }
+    particles.settings = { ...data.effect };
+    particles.setColor(data.color);
+    mesh.userData.effect = { ...data.effect };
+  }
 }
