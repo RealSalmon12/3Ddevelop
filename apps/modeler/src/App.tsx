@@ -92,7 +92,7 @@ export function App() {
   const [aiOpen, setAiOpen] = useState(true);
   const [bloom, setBloom] = useState(true);
   const [snap, setSnap] = useState(false);
-  const [toast, notify] = useToast();
+  const [toast, notify] = useToast(4500);
   const file = useProjectFile(model, dirty, notify);
   const tour = useTour("modeler");
   const updater = useUpdater(notify);
@@ -101,6 +101,12 @@ export function App() {
   useEffect(() => viewport?.setTool(tool), [viewport, tool]);
   useEffect(() => viewport?.setBloom(bloom), [viewport, bloom]);
   useEffect(() => viewport?.setSnap(snap), [viewport, snap]);
+
+  const EDIT_BLOCKED = {
+    "nothing-selected": "편집 모드는 오브젝트 하나의 모양을 고치는 곳이에요. 먼저 고칠 오브젝트를 클릭하거나 오른쪽 장면 목록에서 골라 주세요.",
+    effect: "이펙트는 고칠 모양이 없어서 편집 모드를 쓸 수 없어요. 도형을 골라 주세요.",
+  } as const;
+  const explainEdit = (result: "ok" | keyof typeof EDIT_BLOCKED) => result !== "ok" && notify(EDIT_BLOCKED[result]);
 
   const needFaces = "먼저 면을 골라 주세요. 위에서 ‘면’을 누르고 면을 클릭하면 돼요.";
   const editActions: ToolAction[] = [
@@ -138,7 +144,7 @@ export function App() {
       if (e.altKey) return;
       if (key === "tab") {
         e.preventDefault();
-        model.toggleEdit();
+        explainEdit(model.toggleEdit());
         return;
       }
       if (model.getSnapshot().edit) {
@@ -178,7 +184,7 @@ export function App() {
         { label: "다시 실행", shortcut: "Ctrl+Y", disabled: !canRedo, onSelect: () => model.redo() },
         { label: "복제", shortcut: "Ctrl+D", disabled: !selected, onSelect: () => model.duplicateSelected() },
         { label: "지우기", shortcut: "Delete", disabled: !selected, onSelect: () => model.removeSelected() },
-        { label: edit ? "편집 모드 끝내기" : "편집 모드 (점, 선, 면 고치기)", shortcut: "Tab", disabled: !selected, onSelect: () => model.toggleEdit() },
+        { label: edit ? "편집 모드 끝내기" : "편집 모드 (점, 선, 면 고치기)", shortcut: "Tab", onSelect: () => explainEdit(model.toggleEdit()) },
       ],
     },
     {
@@ -291,7 +297,7 @@ export function App() {
         <Segmented
           label="모드"
           value={edit ? "edit" : "object"}
-          onChange={(mode) => (mode === "edit" ? model.enterEdit() : model.exitEdit())}
+          onChange={(mode) => (mode === "edit" ? explainEdit(model.enterEdit()) : model.exitEdit())}
           options={[
             { value: "object", label: "오브젝트 모드", hint: "오브젝트를 통째로 옮기고 돌리기 (Tab)" },
             { value: "edit", label: "편집 모드", hint: selected ? "점, 선, 면을 고쳐서 모양 바꾸기 (Tab)" : "먼저 오브젝트를 골라 주세요" },
