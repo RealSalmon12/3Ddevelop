@@ -86,6 +86,8 @@ interface LayerBase {
   flipY: boolean;
   mask: Mask | null;
   effects: Effects;
+  /** 클리핑 마스크: 바로 아래(클리핑되지 않은) 레이어 모양 안에만 보인다 */
+  clip?: boolean;
 }
 
 /** 픽셀 레이어 (사진, 붓으로 그린 것) */

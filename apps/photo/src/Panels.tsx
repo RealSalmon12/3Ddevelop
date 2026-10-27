@@ -720,7 +720,7 @@ export function LayersPanel({
               <li
                 key={l.id}
                 aria-current={l.id === selectedId}
-                className={`${dropAt === index ? "drop" : ""}${l.visible ? "" : " hidden"}`}
+                className={`${dropAt === index ? "drop" : ""}${l.visible ? "" : " hidden"}${l.clip && index > 0 ? " clipped" : ""}`}
                 draggable={renaming !== l.id}
                 onDragStart={(e) => {
                   setDragId(l.id);
@@ -743,6 +743,11 @@ export function LayersPanel({
                 <button className="layer-eye" aria-pressed={l.visible} title={l.visible ? "숨기기" : "보이기"} onClick={() => onUpdate({ ...l, visible: !l.visible })}>
                   {l.visible ? "👁" : ""}
                 </button>
+                {l.clip && index > 0 && (
+                  <span className="layer-clip" title="클리핑 마스크: 아래 레이어 모양 안에만 보여요">
+                    ↳
+                  </span>
+                )}
                 {l.kind === "adjust" ? (
                   <span className="thumb adj" onClick={() => onSelect(l.id, false)}>
                     {ADJUSTMENTS.find((a) => a.kind === l.adjustKind)!.icon}
