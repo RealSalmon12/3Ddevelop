@@ -52,6 +52,14 @@
       "language": "1042"
     },
     "electronVersion": "45.0.0",
-    "executableName": "NugunaVideo"
+    "executableName": "NugunaVideo",
+    "fileAssociations": [
+      {
+        "ext": "bvid",
+        "name": "바코 오로라 프로젝트",
+        "description": "바코 오로라 프로젝트",
+        "role": "Editor"
+      }
+    ]
   }
 }

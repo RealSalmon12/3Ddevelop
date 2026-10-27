@@ -1,16 +1,16 @@
 import type { AIRequest } from "@suite/shell/bridge";
-import { clipLength, newId, totalLength, type Caption, type Project } from "./project";
+import { clearRange, clipEnd, DEFAULT_TEXT, defaultParams, NEUTRAL_COLOR, newId, projectDuration, type Clip, type Project } from "./model";
 
-export const AI_SYSTEM = `당신은 초보자를 돕는 쇼츠·영상 자막 작가입니다. 사용자의 영상 조각 목록과 길이를 보고 자막을 만들어 주세요.
+export const AI_SYSTEM = `당신은 초보자를 돕는 쇼츠·영상 자막 작가입니다. 사용자의 시퀀스(트랙과 클립 목록, 길이)를 보고 자막을 만들어 주세요.
 항상 write_captions 도구로 답하세요.
-- captions: start, end 는 초 (0 ~ 전체 길이). 한 자막은 1.5~4초, 서로 겹치지 않게. 글은 짧고 재미있게 (한 줄 15자 이내, 필요하면 \\n 으로 두 줄).
+- captions: start, end 는 시퀀스의 초 (0 ~ 전체 길이). 한 자막은 1.5~4초, 서로 겹치지 않게. 글은 짧고 재미있게 (한 줄 15자 이내, 필요하면 \\n 으로 두 줄).
 - position: top(제목), middle(강조), bottom(일반 자막). size: small/medium/large. color: "#rrggbb" (보통 흰색, 강조는 노랑 #ffd23f).
-- replace: true 면 원래 자막을 지우고 새로 넣습니다.
+- 자막은 가장 위 영상 트랙에 글자 클립으로 들어갑니다. replace: true 면 그 트랙의 원래 글자 클립을 지우고 새로 넣습니다.
 - message 에는 무엇을 했는지 한국어로 짧게.`;
 
 export const AI_TOOL: NonNullable<AIRequest["tool"]> = {
   name: "write_captions",
-  description: "영상에 자막을 넣는다.",
+  description: "영상에 자막(글자 클립)을 넣는다.",
   input_schema: {
     type: "object",
     properties: {
@@ -36,17 +36,21 @@ export const AI_TOOL: NonNullable<AIRequest["tool"]> = {
   },
 };
 
+const round = (n: number) => Math.round(n * 10) / 10;
+
 export function aiContext(p: Project) {
-  let t = 0;
+  const { width, height } = p.sequence;
   return {
-    total_seconds: Math.round(totalLength(p) * 10) / 10,
-    shape: p.portrait ? "세로 (쇼츠)" : "가로",
-    clips: p.clips.map((c) => {
-      const item = { name: c.name, kind: c.kind === "video" ? "영상" : "사진", from: Math.round(t * 10) / 10, to: Math.round((t + clipLength(c)) * 10) / 10 };
-      t += clipLength(c);
-      return item;
-    }),
-    captions: p.captions.map(({ text, start, end }) => ({ text, start, end })),
+    total_seconds: round(projectDuration(p)),
+    frame: `${width}×${height} (${height > width ? "세로, 쇼츠" : width === height ? "정사각형" : "가로"})`,
+    tracks: p.tracks.map((t) => ({
+      track: t.name,
+      clips: p.clips
+        .filter((c) => c.track === t.id)
+        .sort((a, b) => a.start - b.start)
+        .map((c) => ({ name: c.kind === "text" ? `글자: ${c.text?.text ?? ""}` : c.name, kind: c.kind, from: round(c.start), to: round(clipEnd(c)) })),
+    })),
+    markers: p.markers.map((m) => ({ t: round(m.t), label: m.label })),
   };
 }
 
@@ -59,21 +63,46 @@ interface AICaption {
   color?: unknown;
 }
 
+const SIZES = { small: 0.045, medium: 0.065, large: 0.095 };
+
+/** AI 자막을 가장 위 영상 트랙에 글자 클립으로 넣는다. */
 export function applyAICaptions(p: Project, input: { captions?: AICaption[]; replace?: boolean }): Project {
-  const total = totalLength(p) || 60;
-  const made: Caption[] = (input.captions ?? [])
-    .filter((c) => typeof c.text === "string" && c.text.trim() && typeof c.start === "number" && typeof c.end === "number")
-    .map((c) => {
-      const start = Math.max(0, Math.min(total, c.start as number));
-      return {
-        id: newId(),
-        text: (c.text as string).trim(),
-        start,
-        end: Math.max(start + 0.3, Math.min(total, c.end as number)),
-        position: (["top", "middle", "bottom"].includes(c.position as string) ? c.position : "bottom") as Caption["position"],
-        size: (["small", "medium", "large"].includes(c.size as string) ? c.size : "medium") as Caption["size"],
+  const track = p.tracks.find((t) => t.kind === "video" && !t.locked);
+  if (!track) return p;
+  const total = projectDuration(p) || 60;
+  const { width, height } = p.sequence;
+  const short = Math.min(width, height);
+  let clips = input.replace ? p.clips.filter((c) => !(c.track === track.id && c.kind === "text")) : p.clips;
+  for (const c of input.captions ?? []) {
+    if (typeof c.text !== "string" || !c.text.trim() || typeof c.start !== "number" || typeof c.end !== "number") continue;
+    const start = Math.max(0, Math.min(total, c.start));
+    const end = Math.max(start + 0.3, Math.min(total, c.end));
+    const position = (["top", "middle", "bottom"].includes(c.position as string) ? c.position : "bottom") as "top" | "middle" | "bottom";
+    const size = SIZES[(c.size as keyof typeof SIZES) in SIZES ? (c.size as keyof typeof SIZES) : "medium"];
+    const params = defaultParams();
+    params.y.value = position === "top" ? -height * 0.36 : position === "bottom" ? height * 0.36 : 0;
+    const clip: Clip = {
+      id: newId(),
+      kind: "text",
+      name: "자막",
+      track: track.id,
+      start,
+      in: 0,
+      out: end - start,
+      speed: 1,
+      params,
+      color: { ...NEUTRAL_COLOR },
+      fadeIn: 0.1,
+      fadeOut: 0.1,
+      text: {
+        ...DEFAULT_TEXT,
+        text: c.text.trim(),
+        size: Math.round(short * size * (position === "top" ? 1.2 : 1)),
         color: /^#[0-9a-f]{6}$/i.test((c.color as string) ?? "") ? (c.color as string) : "#ffffff",
-      };
-    });
-  return { ...p, captions: [...(input.replace ? [] : p.captions), ...made].sort((a, b) => a.start - b.start) };
+        stroke: Math.round(short * 0.006),
+      },
+    };
+    clips = [...clearRange(clips, track.id, start, end), clip];
+  }
+  return { ...p, clips };
 }

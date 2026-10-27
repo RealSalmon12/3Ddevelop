@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import {
   AIAssistantPanel,
   AppFrame,
+  CommandSearch,
   MenuBar,
   Panel,
   StatusBar,
@@ -9,6 +10,7 @@ import {
   Tour,
   UpdateButton,
   isTourOpen,
+  menuCommands,
   useHistory,
   useToast,
   useTour,
@@ -17,64 +19,99 @@ import {
   type TourStep,
 } from "@suite/ui";
 import { AI_SYSTEM, AI_TOOL, aiContext, applyAICaptions } from "./ai";
-import { Engine } from "./engine";
-import { clipLength, clipStart, EMPTY_PROJECT, fmt, locate, newId, totalLength, type Caption, type Clip, type Project } from "./project";
+import { EffectControls } from "./EffectControls";
+import { Engine, exportFormats } from "./engine";
+import { kindOf, MEDIA_FILTER, probeMedia, thumbnail } from "./media";
+import {
+  clearRange,
+  clipDuration,
+  clipEnd,
+  DEFAULT_TEXT,
+  defaultParams,
+  emptyProject,
+  evalParam,
+  isVisual,
+  NEUTRAL_COLOR,
+  newId,
+  projectDuration,
+  SEQUENCE_PRESETS,
+  setParam,
+  splitClip,
+  STILL_SECONDS,
+  timecode,
+  type Clip,
+  type MediaItem,
+  type Project,
+  type Sequence,
+} from "./model";
+import { Timeline, type TimelineTool } from "./Timeline";
+
+const PROJECT_FILTER = { name: "바코 오로라 프로젝트", extensions: ["bvid"] };
+const AUTOSAVE_MS = 20_000;
 
 const TOUR_STEPS: TourStep[] = [
-  { title: "바코 오로라에 오신 걸 환영해요! 👋", body: "영상과 사진을 이어 붙이고, 자막과 배경 음악을 넣어서 쇼츠 같은 짧은 영상을 만들 수 있어요." },
-  { title: "영상 넣기", target: ".video-add", body: "영상이나 사진 파일을 창에 끌어다 놓거나 ‘＋ 영상·사진 넣기’를 눌러요. 넣은 순서대로 아래에 이어져요." },
-  { title: "타임라인", target: ".timeline", body: "아래 줄이 시간 순서예요. 조각을 눌러 고르고, 오른쪽에서 앞뒤를 잘라 내거나 순서를 바꿔요. 줄을 클릭하면 그 시간으로 가요." },
-  { title: "자막과 음악", target: ".suite-side .suite-panel:nth-of-type(2)", body: "‘＋ 자막’을 누르면 지금 시간에 자막이 생겨요. 배경 음악도 넣을 수 있어요." },
-  { title: "AI 에게 부탁하기 ✨", target: ".suite-side .suite-panel:last-of-type", body: "“재밌는 자막 달아줘”라고 쓰면 AI 가 자막을 만들어 줘요." },
-  { title: "영상으로 저장", target: ".suite-menu:nth-of-type(1)", body: "‘영상으로 내보내기’를 누르면 처음부터 끝까지 재생하면서 .webm 영상 파일로 저장해요. 유튜브에 바로 올릴 수 있어요." },
+  { title: "바코 오로라에 오신 걸 환영해요! 🎬", body: "프리미어 프로처럼 여러 트랙에 영상, 사진, 소리, 글자를 쌓아서 편집하는 프로그램이에요. 1분이면 기본을 익혀요." },
+  { title: "1. 미디어 가져오기", target: ".bin", body: "영상, 사진, 음악 파일을 창에 끌어다 놓거나 ‘가져오기’를 눌러요. 여기 모인 파일을 아래 타임라인으로 끌어다 놓으면 편집이 시작돼요. 더블클릭하면 재생 위치에 바로 들어가요." },
+  { title: "2. 타임라인", target: ".tl", body: "위쪽 V 트랙은 화면(위에 있을수록 앞에 보여요), 아래 A 트랙은 소리예요. 클립을 끌어 옮기고, 가장자리를 끌어 잘라요. C 를 누르면 자르기 도구, V 는 선택 도구예요. Ctrl+휠로 확대해요." },
+  { title: "3. 효과 컨트롤", target: ".suite-side .suite-panel:first-of-type", body: "클립을 고르면 여기서 위치, 크기, 불투명도, 볼륨, 속도, 색 보정, 페이드를 바꿔요. 숫자는 좌우로 끌면 바뀌어요. ⏱ 를 켜고 재생 위치를 옮겨 가며 값을 바꾸면 움직이는 효과(키프레임)가 돼요." },
+  { title: "4. 프로그램 모니터", target: ".monitor", body: "편집한 결과가 여기 보여요. Space 재생, ← → 한 프레임, J/K/L 되감기·멈춤·재생. I, O 로 내보낼 범위를 정하고, 고른 클립은 화면에서 끌어 옮길 수 있어요." },
+  { title: "5. 내보내기", target: ".export-button", body: "다 만들었으면 ‘내보내기’(Ctrl+M)로 MP4 영상을 만들어요. 유튜브, 디스코드, 휴대폰 어디서나 열려요. 프로젝트는 Ctrl+S 로 저장해 두면 나중에 이어서 편집할 수 있어요." },
 ];
 
-const MEDIA = { name: "영상, 사진", extensions: ["mp4", "webm", "mov", "mkv", "png", "jpg", "jpeg", "gif", "webp"] };
-const AUDIO = { name: "음악", extensions: ["mp3", "wav", "ogg", "m4a"] };
-const IMAGE_SECONDS = 3;
+const baseName = (path: string) => path.split(/[\\/]/).pop()!.replace(/\.[^.]+$/, "");
 
-function base64ToBlobUrl(b64: string, mime: string) {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return URL.createObjectURL(new Blob([bytes], { type: mime }));
-}
-
-const mimeOf = (name: string) => {
-  const ext = name.split(".").pop()!.toLowerCase();
-  if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) return `image/${ext === "jpg" ? "jpeg" : ext}`;
-  if (["mp3", "wav", "ogg", "m4a"].includes(ext)) return `audio/${ext === "mp3" ? "mpeg" : ext === "m4a" ? "mp4" : ext}`;
-  return `video/${ext === "mov" ? "quicktime" : ext === "mkv" ? "x-matroska" : ext}`;
-};
-
-/** 영상 길이 읽기 */
-function probeVideo(url: string) {
-  return new Promise<number>((resolve, reject) => {
-    const v = document.createElement("video");
-    v.preload = "metadata";
-    v.onloadedmetadata = () => resolve(Number.isFinite(v.duration) ? v.duration : 5);
-    v.onerror = () => reject(new Error("영상을 읽을 수 없어요"));
-    v.src = url;
-  });
+function makeClip(media: MediaItem, track: string, start: number): Clip {
+  const still = media.kind === "image";
+  return {
+    id: newId(),
+    kind: media.kind,
+    mediaId: media.id,
+    name: media.name,
+    track,
+    start,
+    in: 0,
+    out: still ? STILL_SECONDS : media.duration,
+    speed: 1,
+    params: defaultParams(),
+    color: { ...NEUTRAL_COLOR },
+    fadeIn: 0,
+    fadeOut: 0,
+  };
 }
 
 export function App() {
-  const history = useHistory<Project>(EMPTY_PROJECT, 60);
+  const history = useHistory<Project>(emptyProject(), 100);
   const project = history.state;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engine = useRef<Engine | null>(null);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [selectedClip, setSelectedClip] = useState<number | null>(null);
-  const [selectedCaption, setSelectedCaption] = useState<number | null>(null);
-  const [exporting, setExporting] = useState<number | null>(null);
-  const [aiOpen, setAiOpen] = useState(true);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [tool, setTool] = useState<TimelineTool>("select");
+  const [snapping, setSnapping] = useState(true);
+  const [pxPerSec, setPxPerSec] = useState(40);
+  const [previewScale, setPreviewScale] = useState(0.5);
+  const [safeMargins, setSafeMargins] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState<{ ratio: number; signal: { cancel: boolean } } | null>(null);
+  const [newOpen, setNewOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [filePath, setFilePath] = useState<string | null>(null);
+  const [level, setLevel] = useState(0);
+  const clipboard = useRef<Clip[]>([]);
+  const shuttle = useRef(0);
   const [toast, notify] = useToast(4500);
-  const tour = useTour("video");
+  const tour = useTour("video-v2");
   const updater = useUpdater(notify);
-  const total = totalLength(project);
-  const clip = project.clips.find((c) => c.id === selectedClip) ?? null;
-  const caption = project.captions.find((c) => c.id === selectedCaption) ?? null;
+  const duration = projectDuration(project);
+  const fps = project.sequence.fps;
+  const frame = 1 / fps;
+  const selectedClips = project.clips.filter((c) => selected.has(c.id));
+  const focus = selectedClips.length === 1 ? selectedClips[0] : null;
+  const name = filePath ? baseName(filePath) : "제목 없음";
+
+  // ---------- 엔진 ----------
 
   useEffect(() => {
     const e = new Engine(canvasRef.current!, history.get());
@@ -87,59 +124,233 @@ export function App() {
     return () => e.dispose();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
   useEffect(() => engine.current?.setProject(project), [project]);
+  useEffect(() => {
+    if (!engine.current) return;
+    engine.current.previewScale = previewScale;
+    if (!engine.current.isPlaying) engine.current.draw();
+  }, [previewScale]);
+  // 오디오 미터
+  useEffect(() => {
+    if (!playing) return setLevel(0);
+    let raf = 0;
+    const loop = () => {
+      setLevel(engine.current?.level() ?? 0);
+      raf = requestAnimationFrame(loop);
+    };
+    loop();
+    return () => cancelAnimationFrame(raf);
+  }, [playing]);
+
+  const seek = useCallback((t: number) => {
+    engine.current?.stop();
+    shuttle.current = 0;
+    engine.current?.seek(Math.max(0, t));
+  }, []);
+
+  // ---------- 제목, 닫기 경고, 자동 저장 ----------
 
   useEffect(() => {
-    document.title = `${history.dirty ? "● " : ""}바코 오로라`;
+    document.title = `${history.dirty ? "● " : ""}${name} - 바코 오로라`;
     window.suite?.window.setDirty(history.dirty);
-  }, [history.dirty]);
+  }, [history.dirty, name]);
 
-  const addMedia = useCallback(
-    async (url: string, name: string, mime: string) => {
-      try {
-        const isImage = mime.startsWith("image/");
-        const duration = isImage ? 600 : await probeVideo(url);
-        const c: Clip = { id: newId(), kind: isImage ? "image" : "video", name, url, duration, in: 0, out: isImage ? IMAGE_SECONDS : duration, volume: 1 };
-        history.set((p) => ({ ...p, clips: [...p.clips, c] }));
-        setSelectedClip(c.id);
-      } catch {
-        notify(`‘${name}’ 은(는) 열 수 없어요. mp4 나 webm 영상, png·jpg 사진을 써 주세요.`);
+  useEffect(() => {
+    const autosave = window.suite?.autosave;
+    if (!autosave) return;
+    void autosave.read().then((saved) => {
+      if (!saved) return;
+      const when = new Date(saved.time).toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" });
+      if (window.confirm(`지난번에 프로그램이 저장하지 않은 채로 꺼졌어요 (${when}).\n그때 편집하던 것을 다시 불러올까요?`)) {
+        try {
+          history.reset(JSON.parse(saved.text) as Project, true);
+          notify("지난 작업을 되살렸어요. 잊지 말고 저장해 주세요 (Ctrl+S).");
+        } catch {
+          notify("자동 저장본이 망가져서 불러오지 못했어요.");
+        }
       }
+      void autosave.write(null);
+    });
+    const clear = () => void autosave.write(null);
+    window.addEventListener("pagehide", clear);
+    return () => window.removeEventListener("pagehide", clear);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    const autosave = window.suite?.autosave;
+    if (!autosave) return;
+    if (!history.dirty) return void autosave.write(null);
+    const timer = setInterval(() => void autosave.write(JSON.stringify(history.get())), AUTOSAVE_MS);
+    return () => clearInterval(timer);
+  }, [history, history.dirty]);
+
+  // ---------- 파일 ----------
+
+  const confirmDiscard = () => !history.dirty || window.confirm("저장하지 않은 편집이 사라져요. 계속할까요?");
+
+  const newProject = (sequence: Sequence) => {
+    history.reset(emptyProject(sequence));
+    setFilePath(null);
+    setSelected(new Set());
+    seek(0);
+    setNewOpen(false);
+  };
+
+  const openProject = async () => {
+    if (!window.suite || !confirmDiscard()) return;
+    const r = await window.suite.files.open({ filters: [PROJECT_FILTER] });
+    if (!r.ok) return r.reason === "error" && notify(`열지 못했어요. ${r.message ?? ""}`);
+    try {
+      const p = JSON.parse(r.text) as Project;
+      if (p.app !== "video" || p.version !== 2) throw new Error();
+      history.reset(p);
+      setFilePath(r.path);
+      setSelected(new Set());
+      seek(0);
+      // 옮겨졌거나 지워진 파일이 있는지 알려 준다.
+      const missing: string[] = [];
+      await Promise.all(p.media.map((m) => window.suite!.files.read(m.path).then((b) => b === null && missing.push(m.name)).catch(() => {})));
+      if (missing.length) notify(`찾을 수 없는 파일이 있어요: ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? " 외" : ""}. 옮기거나 지웠는지 확인해 주세요.`);
+    } catch {
+      notify("바코 오로라 프로젝트 파일이 아니에요.");
+    }
+  };
+
+  const saveProject = async (as = false) => {
+    if (!window.suite) return;
+    const r = await window.suite.files.save({
+      path: as ? undefined : (filePath ?? undefined),
+      defaultName: `${name}.bvid`,
+      filters: [PROJECT_FILTER],
+      data: JSON.stringify(history.get()),
+    });
+    if (r.ok) {
+      setFilePath(r.path);
+      history.markSaved();
+      notify("프로젝트를 저장했어요.");
+    } else if (r.reason === "error") notify(`저장하지 못했어요. ${r.message ?? ""}`);
+  };
+
+  // ---------- 미디어 ----------
+
+  /** 경로들을 프로젝트에 가져온다. 이미 있는 파일은 다시 넣지 않는다. */
+  const importPaths = useCallback(
+    async (paths: string[]): Promise<MediaItem[]> => {
+      const added: MediaItem[] = [];
+      const failed: string[] = [];
+      for (const path of paths) {
+        const existing = history.get().media.find((m) => m.path === path);
+        if (existing) {
+          added.push(existing);
+          continue;
+        }
+        try {
+          added.push(await probeMedia(path));
+        } catch {
+          failed.push(baseName(path));
+        }
+      }
+      const fresh = added.filter((m) => !history.get().media.some((x) => x.id === m.id));
+      if (fresh.length) history.set((p) => ({ ...p, media: [...p.media, ...fresh] }));
+      if (failed.length) notify(`열 수 없는 파일: ${failed.join(", ")}. mp4·mov·webm 영상, png·jpg 사진, mp3·wav 소리를 써 주세요.`);
+      return added;
     },
     [history, notify],
   );
 
-  const setMusic = (url: string, name: string) => history.set((p) => ({ ...p, music: { name, url, volume: 0.5 } }));
-
-  const openMedia = async () => {
+  const importDialog = async () => {
     if (!window.suite) return;
-    const r = await window.suite.files.open({ filters: [MEDIA], binary: true });
-    if (!r.ok) return r.reason === "error" && notify(`열지 못했어요. ${r.message ?? ""}`);
-    const name = r.path.split(/[\\/]/).pop()!;
-    const mime = mimeOf(name);
-    await addMedia(base64ToBlobUrl(r.text, mime), name.replace(/\.[^.]+$/, ""), mime);
+    const paths = await window.suite.files.pick({ filters: [MEDIA_FILTER], multiple: true });
+    const added = await importPaths(paths);
+    // 첫 편집이면 바로 타임라인에 이어 붙여 준다.
+    if (added.length && history.get().clips.length === 0) appendToTimeline(added);
   };
 
-  const openMusic = async () => {
-    if (!window.suite) return;
-    const r = await window.suite.files.open({ filters: [AUDIO], binary: true });
-    if (!r.ok) return r.reason === "error" && notify(`열지 못했어요. ${r.message ?? ""}`);
-    const name = r.path.split(/[\\/]/).pop()!;
-    setMusic(base64ToBlobUrl(r.text, mimeOf(name)), name.replace(/\.[^.]+$/, ""));
+  /** 클립 하나를 트랙의 t 에 덮어쓰기로 놓는다 */
+  const placeClip = (p: Project, clip: Clip): Project => ({
+    ...p,
+    clips: [...clearRange(p.clips, clip.track, clip.start, clipEnd(clip)), clip],
+  });
+
+  const defaultTrack = (p: Project, kind: "video" | "audio") => {
+    const list = p.tracks.filter((t) => t.kind === kind && !t.locked);
+    return kind === "video" ? list[list.length - 1] : list[0];
   };
 
-  useEffect(() => {
-    const over = (e: DragEvent) => e.preventDefault();
-    const drop = async (e: DragEvent) => {
-      e.preventDefault();
-      for (const file of Array.from(e.dataTransfer?.files ?? [])) {
-        const url = URL.createObjectURL(file);
-        const name = file.name.replace(/\.[^.]+$/, "");
-        const mime = file.type || mimeOf(file.name);
-        if (mime.startsWith("audio/")) setMusic(url, name);
-        else await addMedia(url, name, mime);
+  /** 미디어 여러 개를 타임라인 끝에 차례로 붙인다 (사진, 영상은 V1, 소리는 A1) */
+  const appendToTimeline = (media: MediaItem[]) => {
+    history.set((p) => {
+      let next = p;
+      for (const m of media) {
+        const track = defaultTrack(next, m.kind === "audio" ? "audio" : "video");
+        if (!track) continue;
+        const end = next.clips.filter((c) => c.track === track.id).reduce((n, c) => Math.max(n, clipEnd(c)), 0);
+        next = placeClip(next, makeClip(m, track.id, end));
       }
+      return next;
+    });
+  };
+
+  const dropMedia = (mediaId: string, trackId: string, t: number) => {
+    const media = project.media.find((m) => m.id === mediaId);
+    if (!media) return;
+    const clip = makeClip(media, trackId, t);
+    history.set((p) => placeClip(p, clip));
+    setSelected(new Set([clip.id]));
+  };
+
+  /** 재생 위치에 덮어쓰기 (더블클릭, .) */
+  const overwriteAtPlayhead = (media: MediaItem) => {
+    const track = defaultTrack(project, media.kind === "audio" ? "audio" : "video");
+    if (!track) return notify("잠기지 않은 트랙이 없어요.");
+    dropMedia(media.id, track.id, time);
+  };
+
+  /** 글자, 색 매트: 가장 위 영상 트랙(V3)의 재생 위치에 */
+  const addGenerated = (kind: "text" | "color") => {
+    const track = project.tracks.find((t) => t.kind === "video" && !t.locked);
+    if (!track) return notify("잠기지 않은 영상 트랙이 없어요.");
+    const clip: Clip = {
+      id: newId(),
+      kind,
+      name: kind === "text" ? "글자" : "색 매트",
+      track: kind === "text" ? track.id : defaultTrack(project, "video")!.id,
+      start: time,
+      in: 0,
+      out: STILL_SECONDS,
+      speed: 1,
+      params: defaultParams(),
+      color: { ...NEUTRAL_COLOR },
+      fadeIn: 0,
+      fadeOut: 0,
+      ...(kind === "text" ? { text: { ...DEFAULT_TEXT } } : { fill: "#1b1f2e" }),
+    };
+    history.set((p) => placeClip(p, clip));
+    setSelected(new Set([clip.id]));
+    if (kind === "text") {
+      requestAnimationFrame(() => {
+        const box = document.querySelector<HTMLTextAreaElement>(".fx-text");
+        box?.focus();
+        box?.select();
+      });
+    }
+  };
+
+  // 파일을 창에 끌어다 놓기
+  useEffect(() => {
+    const over = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+    };
+    const drop = async (e: DragEvent) => {
+      if (!e.dataTransfer?.files.length || !window.suite) return;
+      e.preventDefault();
+      const paths = Array.from(e.dataTransfer.files)
+        .map((f) => window.suite!.files.pathOf(f))
+        .filter((p) => p && kindOf(p));
+      const projectFile = Array.from(e.dataTransfer.files).find((f) => f.name.endsWith(".bvid"));
+      if (projectFile) return notify("프로젝트는 파일 → 프로젝트 열기(Ctrl+O)로 열어 주세요.");
+      const added = await importPaths(paths);
+      if (added.length && history.get().clips.length === 0) appendToTimeline(added);
     };
     window.addEventListener("dragover", over);
     window.addEventListener("drop", drop);
@@ -149,79 +360,172 @@ export function App() {
     };
   });
 
-  const updateClip = (c: Clip, preview = false) => (preview ? history.preview : history.set)((p) => ({ ...p, clips: p.clips.map((x) => (x.id === c.id ? c : x)) }));
-  const updateCaption = (c: Caption, preview = false) =>
-    (preview ? history.preview : history.set)((p) => ({ ...p, captions: p.captions.map((x) => (x.id === c.id ? c : x)) }));
+  // ---------- 편집 ----------
 
-  const moveClip = (dir: -1 | 1) =>
-    history.set((p) => {
-      const i = p.clips.findIndex((c) => c.id === selectedClip);
-      const j = i + dir;
-      if (i < 0 || j < 0 || j >= p.clips.length) return p;
-      const clips = [...p.clips];
-      [clips[i], clips[j]] = [clips[j], clips[i]];
-      return { ...p, clips };
-    });
+  const updateClip = (c: Clip, mode: "preview" | "set") =>
+    (mode === "preview" ? history.preview : history.set)((p) => ({ ...p, clips: p.clips.map((x) => (x.id === c.id ? c : x)) }));
 
-  /** 지금 시간에서 조각을 둘로 나눈다 */
-  const split = () => {
-    const at = locate(project, time);
-    if (!at || at.local - at.clip.in < 0.2 || at.clip.out - at.local < 0.2) return notify("조각 가운데쯤에서 나눌 수 있어요. 재생 위치를 옮겨 주세요.");
-    const second: Clip = { ...at.clip, id: newId(), in: at.local };
-    history.set((p) => {
-      const clips = [...p.clips];
-      clips.splice(at.index, 1, { ...at.clip, out: at.local }, second);
-      return { ...p, clips };
-    });
-    setSelectedClip(second.id);
+  const unlocked = (c: Clip) => !project.tracks.find((t) => t.id === c.track)?.locked;
+
+  /** Ctrl+K: 재생 위치에서 자르기. 고른 클립이 있으면 그것만, 없으면 모든 트랙 */
+  const cutAtPlayhead = () => {
+    const targets = (selectedClips.length ? selectedClips : project.clips).filter(unlocked);
+    let clips = project.clips;
+    let count = 0;
+    for (const c of targets) {
+      const parts = splitClip(c, time);
+      if (!parts) continue;
+      clips = clips.flatMap((x) => (x.id === c.id ? parts : [x]));
+      count++;
+    }
+    if (!count) return notify("재생 위치에 자를 클립이 없어요.");
+    history.set({ ...project, clips });
   };
 
-  const addCaption = () => {
-    const c: Caption = { id: newId(), text: "자막을 입력하세요", start: time, end: Math.min(Math.max(total, time + 2.5), time + 2.5), position: "bottom", size: "medium", color: "#ffffff" };
-    history.set((p) => ({ ...p, captions: [...p.captions, c].sort((a, b) => a.start - b.start) }));
-    setSelectedCaption(c.id);
-    requestAnimationFrame(() => {
-      const box = document.querySelector<HTMLTextAreaElement>(".caption-text");
-      box?.focus();
-      box?.select();
+  /** Delete: 고른 클립 빼기 (빈자리는 그대로). ripple 이면 뒤에 있는 클립을 당겨서 빈자리를 없앤다 (Shift+Delete). */
+  const deleteSelected = (ripple: boolean) => {
+    const victims = selectedClips.filter(unlocked);
+    if (!victims.length) return;
+    history.set((p) => {
+      let clips = p.clips.filter((c) => !victims.some((v) => v.id === c.id));
+      if (ripple) {
+        for (const v of [...victims].sort((a, b) => b.start - a.start)) {
+          const gap = clipDuration(v);
+          clips = clips.map((c) => (c.track === v.track && c.start >= v.start ? { ...c, start: Math.max(0, c.start - gap) } : c));
+        }
+      }
+      return { ...p, clips };
     });
+    setSelected(new Set());
   };
 
-  const exportVideo = async () => {
+  const copy = () => {
+    if (!selectedClips.length) return;
+    clipboard.current = selectedClips;
+    notify(`클립 ${selectedClips.length}개를 복사했어요. 재생 위치에서 Ctrl+V 로 붙여 넣어요.`);
+  };
+
+  const paste = () => {
+    const items = clipboard.current;
+    if (!items.length) return;
+    const first = Math.min(...items.map((c) => c.start));
+    const pasted = items.map((c) => ({ ...c, id: newId(), start: time + (c.start - first) }));
+    history.set((p) => pasted.reduce(placeClip, p));
+    setSelected(new Set(pasted.map((c) => c.id)));
+  };
+
+  /** Ctrl+D: 기본 전환 (앞뒤 0.5초 페이드) */
+  const defaultTransition = () => {
+    if (!selectedClips.length) return notify("먼저 전환을 넣을 클립을 골라 주세요.");
+    history.set((p) => ({
+      ...p,
+      clips: p.clips.map((c) => (selected.has(c.id) ? { ...c, fadeIn: Math.min(0.5, clipDuration(c) / 3), fadeOut: Math.min(0.5, clipDuration(c) / 3) } : c)),
+    }));
+  };
+
+  /** 편집점(클립 앞뒤) 사이 이동 */
+  const editPoints = () => [...new Set([0, ...project.clips.flatMap((c) => [c.start, clipEnd(c)])])].sort((a, b) => a - b);
+  const jumpEdit = (dir: 1 | -1) => {
+    const pts = editPoints();
+    const target = dir > 0 ? pts.find((t) => t > time + 1e-3) : [...pts].reverse().find((t) => t < time - 1e-3);
+    if (target !== undefined) seek(target);
+  };
+
+  const addMarker = () =>
+    history.set((p) => ({ ...p, markers: [...p.markers, { id: newId(), t: time, label: `마커 ${p.markers.length + 1}`, color: "#4fd1c5" }] }));
+
+  const togglePlay = () => {
+    const e = engine.current;
+    if (!e) return;
+    shuttle.current = 0;
+    if (e.isPlaying) e.stop();
+    else e.play(time >= duration - 0.05 ? 0 : time);
+  };
+
+  /** L: 앞으로 재생, 누를수록 빠르게 (1→2→4배). K: 멈춤. J: 1초씩 뒤로 */
+  const shuttleForward = () => {
+    shuttle.current = Math.min(4, shuttle.current ? shuttle.current * 2 : 1);
+    engine.current?.play(time, duration, shuttle.current);
+  };
+
+  const fitTimeline = () => {
+    const el = document.querySelector(".tl");
+    if (el) setPxPerSec(Math.max(2, (el.clientWidth - 160) / Math.max(duration, 5)));
+  };
+
+  const snapshot = async () => {
     const e = engine.current;
     if (!e || !window.suite) return;
-    if (!total) return notify("먼저 영상이나 사진을 넣어 주세요.");
-    setExporting(0);
-    try {
-      const blob = await e.record((r) => setExporting(r));
-      setExporting(null);
-      const r = await window.suite.files.save({
-        defaultName: "내 영상.webm",
-        filters: [{ name: "WebM 영상", extensions: ["webm"] }],
-        data: new Uint8Array(await blob.arrayBuffer()),
-      });
-      if (r.ok) {
-        history.markSaved();
-        notify("영상으로 저장했어요! 유튜브에 바로 올릴 수 있어요.");
-      } else if (r.reason === "error") notify(`저장하지 못했어요. ${r.message ?? ""}`);
-    } catch (err) {
-      setExporting(null);
-      notify(`영상을 만들지 못했어요. ${String(err)}`);
-    }
+    const blob = await e.snapshot();
+    const r = await window.suite.files.save({
+      defaultName: `${name} ${timecode(time, fps).replace(/:/g, "-")}.png`,
+      filters: [{ name: "PNG 그림", extensions: ["png"] }],
+      data: new Uint8Array(await blob.arrayBuffer()),
+    });
+    if (r.ok) notify("지금 화면을 그림으로 저장했어요. 유튜브 썸네일로 써 보세요.");
   };
 
-  const togglePlay = () => (engine.current?.isPlaying ? engine.current.stop() : engine.current?.play());
+  // ---------- 모니터에서 끌어 옮기기 ----------
+
+  const monitorDrag = useRef<{ x: number; y: number; clip: Clip; px: number; py: number } | null>(null);
+  const onMonitorDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!focus || !isVisual(focus) || !unlocked(focus)) return;
+    const local = time - focus.start;
+    if (local < 0 || local > clipDuration(focus)) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    monitorDrag.current = { x: e.clientX, y: e.clientY, clip: focus, px: evalParam(focus.params.x, local), py: evalParam(focus.params.y, local) };
+  };
+  const onMonitorMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const d = monitorDrag.current;
+    if (!d) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    // 캔버스가 화면에 줄어 보이는 비율만큼 키워서 시퀀스 좌표로
+    const k = project.sequence.width / Math.min(rect.width, (rect.height * project.sequence.width) / project.sequence.height);
+    const local = time - d.clip.start;
+    const c = d.clip;
+    updateClip(
+      {
+        ...c,
+        params: {
+          ...c.params,
+          x: setParam(c.params.x, local, Math.round(d.px + (e.clientX - d.x) * k)),
+          y: setParam(c.params.y, local, Math.round(d.py + (e.clientY - d.y) * k)),
+        },
+      },
+      "preview",
+    );
+  };
+  const onMonitorUp = () => {
+    if (monitorDrag.current) history.commit();
+    monitorDrag.current = null;
+  };
+
+  // ---------- 단축키 (프리미어 기본값) ----------
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLTextAreaElement || (e.target instanceof HTMLInputElement && e.target.type !== "range") || isTourOpen() || exporting !== null) return;
+      const t = e.target as HTMLElement;
+      if (t instanceof HTMLTextAreaElement || (t instanceof HTMLInputElement && t.type !== "range") || isTourOpen() || exporting || searchOpen) return;
       const key = e.key.toLowerCase();
+      if (key === "f3") {
+        e.preventDefault();
+        return setSearchOpen(true);
+      }
       if (e.ctrlKey || e.metaKey) {
         const map: Record<string, () => void> = {
           z: () => (e.shiftKey ? history.redo() : history.undo()),
           y: history.redo,
-          o: () => void openMedia(),
-          e: () => void exportVideo(),
+          s: () => void saveProject(e.shiftKey),
+          o: () => void openProject(),
+          n: () => confirmDiscard() && setNewOpen(true),
+          i: () => void importDialog(),
+          m: () => setExportOpen(true),
+          k: cutAtPlayhead,
+          c: copy,
+          v: paste,
+          d: defaultTransition,
+          t: () => addGenerated("text"),
+          a: () => setSelected(new Set(project.clips.map((c) => c.id))),
         };
         if (map[key]) {
           e.preventDefault();
@@ -229,34 +533,61 @@ export function App() {
         }
         return;
       }
-      if (e.code === "Space") {
+      const step = e.shiftKey ? frame * 5 : frame;
+      const actions: Record<string, () => void> = {
+        " ": togglePlay,
+        arrowleft: () => seek(time - step),
+        arrowright: () => seek(Math.min(duration, time + step)),
+        arrowup: () => jumpEdit(-1),
+        arrowdown: () => jumpEdit(1),
+        home: () => seek(0),
+        end: () => seek(duration),
+        j: () => seek(time - 1),
+        k: () => {
+          shuttle.current = 0;
+          engine.current?.stop();
+        },
+        l: shuttleForward,
+        i: () => history.set((p) => ({ ...p, inPoint: time, outPoint: p.outPoint !== null && p.outPoint <= time ? null : p.outPoint })),
+        o: () => history.set((p) => ({ ...p, outPoint: time, inPoint: p.inPoint !== null && p.inPoint >= time ? null : p.inPoint })),
+        m: addMarker,
+        v: () => setTool("select"),
+        c: () => setTool("razor"),
+        s: () => setSnapping((s) => !s),
+        delete: () => deleteSelected(e.shiftKey),
+        backspace: () => deleteSelected(e.shiftKey),
+        "=": () => setPxPerSec((p) => Math.min(800, p * 1.4)),
+        "+": () => setPxPerSec((p) => Math.min(800, p * 1.4)),
+        "-": () => setPxPerSec((p) => Math.max(2, p / 1.4)),
+        "\\": fitTimeline,
+        ".": () => {
+          const m = project.media[project.media.length - 1];
+          if (m) overwriteAtPlayhead(m);
+        },
+        escape: () => setSelected(new Set()),
+      };
+      if (actions[key]) {
         e.preventDefault();
-        togglePlay();
-      } else if (key === "s") split();
-      else if (key === "arrowleft") engine.current?.seek(Math.max(0, time - (e.shiftKey ? 1 : 0.1)));
-      else if (key === "arrowright") engine.current?.seek(Math.min(total, time + (e.shiftKey ? 1 : 0.1)));
-      else if (key === "home") engine.current?.seek(0);
-      else if (key === "delete" || key === "backspace") {
-        if (selectedCaption) {
-          history.set((p) => ({ ...p, captions: p.captions.filter((c) => c.id !== selectedCaption) }));
-          setSelectedCaption(null);
-        } else if (selectedClip) {
-          history.set((p) => ({ ...p, clips: p.clips.filter((c) => c.id !== selectedClip) }));
-          setSelectedClip(null);
-        }
+        actions[key]();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  // ---------- 메뉴 ----------
+
   const menus: Menu[] = [
     {
       label: "파일",
       items: [
-        { label: "영상·사진 넣기…", shortcut: "Ctrl+O", onSelect: () => void openMedia() },
-        { label: "배경 음악 넣기…", onSelect: () => void openMusic() },
-        { label: "영상으로 내보내기 (.webm)", shortcut: "Ctrl+E", onSelect: () => void exportVideo() },
+        { label: "새 프로젝트…", shortcut: "Ctrl+N", onSelect: () => confirmDiscard() && setNewOpen(true) },
+        { label: "프로젝트 열기…", shortcut: "Ctrl+O", onSelect: () => void openProject() },
+        { label: "저장", shortcut: "Ctrl+S", onSelect: () => void saveProject() },
+        { label: "다른 이름으로 저장…", shortcut: "Ctrl+Shift+S", onSelect: () => void saveProject(true) },
+        { label: "미디어 가져오기…", shortcut: "Ctrl+I", onSelect: () => void importDialog() },
+        { label: "내보내기 (MP4 영상)…", shortcut: "Ctrl+M", onSelect: () => setExportOpen(true) },
+        { label: "지금 화면을 그림으로 저장 (썸네일)", onSelect: () => void snapshot() },
       ],
     },
     {
@@ -264,38 +595,60 @@ export function App() {
       items: [
         { label: "실행 취소", shortcut: "Ctrl+Z", disabled: !history.canUndo, onSelect: history.undo },
         { label: "다시 실행", shortcut: "Ctrl+Y", disabled: !history.canRedo, onSelect: history.redo },
-        { label: "지금 위치에서 나누기", shortcut: "S", onSelect: split },
-        { label: "자막 넣기", onSelect: addCaption },
+        { label: "복사", shortcut: "Ctrl+C", disabled: !selectedClips.length, onSelect: copy },
+        { label: "붙여넣기 (재생 위치에)", shortcut: "Ctrl+V", onSelect: paste },
+        { label: "지우기 (빈자리 남기기)", shortcut: "Delete", disabled: !selectedClips.length, onSelect: () => deleteSelected(false) },
+        { label: "잔물결 지우기 (빈자리 당기기)", shortcut: "Shift+Delete", disabled: !selectedClips.length, onSelect: () => deleteSelected(true) },
+        { label: "모두 고르기", shortcut: "Ctrl+A", onSelect: () => setSelected(new Set(project.clips.map((c) => c.id))) },
       ],
     },
     {
-      label: "화면",
+      label: "클립",
       items: [
-        { label: `가로 영상 (유튜브)${project.portrait ? "" : " ✓"}`, onSelect: () => history.set((p) => ({ ...p, portrait: false })) },
-        { label: `세로 영상 (쇼츠, 틱톡)${project.portrait ? " ✓" : ""}`, onSelect: () => history.set((p) => ({ ...p, portrait: true })) },
+        { label: "재생 위치에서 자르기", shortcut: "Ctrl+K", onSelect: cutAtPlayhead },
+        { label: "기본 전환 넣기 (페이드)", shortcut: "Ctrl+D", disabled: !selectedClips.length, onSelect: defaultTransition },
+        { label: "글자 넣기", shortcut: "Ctrl+T", onSelect: () => addGenerated("text") },
+        { label: "색 매트 넣기", onSelect: () => addGenerated("color") },
+      ],
+    },
+    {
+      label: "시퀀스",
+      items: [
+        { label: "시작 표시 (In)", shortcut: "I", onSelect: () => history.set((p) => ({ ...p, inPoint: time })) },
+        { label: "끝 표시 (Out)", shortcut: "O", onSelect: () => history.set((p) => ({ ...p, outPoint: time })) },
+        { label: "시작·끝 표시 지우기", disabled: project.inPoint === null && project.outPoint === null, onSelect: () => history.set((p) => ({ ...p, inPoint: null, outPoint: null })) },
+        { label: "마커 넣기", shortcut: "M", onSelect: addMarker },
+        { label: `스냅 (자석) ${snapping ? "끄기" : "켜기"}`, shortcut: "S", onSelect: () => setSnapping(!snapping) },
+        { label: "선택 도구", shortcut: "V", onSelect: () => setTool("select") },
+        { label: "자르기 도구", shortcut: "C", onSelect: () => setTool("razor") },
+        { label: "타임라인 확대", shortcut: "=", onSelect: () => setPxPerSec((p) => Math.min(800, p * 1.4)) },
+        { label: "타임라인 축소", shortcut: "-", onSelect: () => setPxPerSec((p) => Math.max(2, p / 1.4)) },
+        { label: "전체가 보이게", shortcut: "\\", onSelect: fitTimeline },
+        ...SEQUENCE_PRESETS.map((s) => ({
+          label: `화면 크기: ${s.label}${project.sequence.width === s.sequence.width && project.sequence.height === s.sequence.height && project.sequence.fps === s.sequence.fps ? " ✓" : ""}`,
+          onSelect: () => history.set((p) => ({ ...p, sequence: s.sequence })),
+        })),
+      ],
+    },
+    {
+      label: "보기",
+      items: [
+        ...[1, 0.5, 0.25].map((s) => ({ label: `재생 화질: ${s === 1 ? "전체" : s === 0.5 ? "1/2" : "1/4"}${previewScale === s ? " ✓" : ""}`, onSelect: () => setPreviewScale(s) })),
+        { label: `안전 영역 ${safeMargins ? "숨기기" : "보이기"}`, onSelect: () => setSafeMargins(!safeMargins) },
       ],
     },
     {
       label: "도움말",
       items: [
+        { label: "기능 검색", shortcut: "F3", onSelect: () => setSearchOpen(true) },
         { label: "따라하기 안내 다시 보기", onSelect: tour.start },
+        { label: "단축키 보기", onSelect: () => window.alert(SHORTCUTS) },
         { label: "업데이트 확인", onSelect: () => void updater.check(true) },
       ],
     },
   ];
 
-  const slider = (label: string, value: number, min: number, max: number, step: number, unit: string, set: (v: number) => void, commit = history.commit) => (
-    <label className="prop-slider">
-      <span>{label}</span>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => set(Number(e.target.value))} onPointerUp={commit} onKeyUp={commit} />
-      <b>
-        {Math.round(value * 10) / 10}
-        {unit}
-      </b>
-    </label>
-  );
-
-  const pxPerSec = total ? 100 / total : 0;
+  const aspect = `${project.sequence.width} / ${project.sequence.height}`;
 
   return (
     <AppFrame
@@ -312,6 +665,9 @@ export function App() {
                 ↷
               </button>
               <UpdateButton updater={updater} hasUnsavedWork={history.dirty} />
+              <button className="suite-menubar-action export-button" onClick={() => setExportOpen(true)} disabled={!duration}>
+                ⬆ 내보내기
+              </button>
               <button className="suite-menubar-action ai" aria-pressed={aiOpen} onClick={() => setAiOpen(!aiOpen)}>
                 ✨ AI 도우미
               </button>
@@ -321,97 +677,28 @@ export function App() {
       }
       sidebar={
         <>
-          <Panel title={clip ? `조각: ${clip.name}` : "조각"}>
-            {clip ? (
-              <>
-                {clip.kind === "video" ? (
-                  <>
-                    {slider("시작", clip.in, 0, Math.max(0, clip.out - 0.2), 0.1, "초", (v) => updateClip({ ...clip, in: v }, true))}
-                    {slider("끝", clip.out, clip.in + 0.2, clip.duration, 0.1, "초", (v) => updateClip({ ...clip, out: v }, true))}
-                    {slider("소리", Math.round(clip.volume * 100), 0, 150, 1, "%", (v) => updateClip({ ...clip, volume: v / 100 }, true))}
-                  </>
-                ) : (
-                  slider("보이는 시간", clip.out, 0.5, 15, 0.5, "초", (v) => updateClip({ ...clip, out: v }, true))
-                )}
-                <div className="prop-buttons">
-                  <button className="mini" onClick={() => moveClip(-1)}>
-                    ◀ 앞으로
-                  </button>
-                  <button className="mini" onClick={() => moveClip(1)}>
-                    뒤로 ▶
-                  </button>
-                  <button className="mini" onClick={split} title="재생 위치에서 둘로 나누기 (S)">
-                    ✂ 나누기
-                  </button>
-                  <button
-                    className="mini"
-                    onClick={() => {
-                      history.set((p) => ({ ...p, clips: p.clips.filter((c) => c.id !== clip.id) }));
-                      setSelectedClip(null);
-                    }}
-                  >
-                    🗑
-                  </button>
-                </div>
-              </>
+          <Panel title="효과 컨트롤">
+            {focus ? (
+              <EffectControls
+                clip={focus}
+                time={time}
+                preview={(c) => updateClip(c, "preview")}
+                commit={history.commit}
+                set={(c) => updateClip(c, "set")}
+                onSeek={seek}
+              />
             ) : (
-              <p className="panel-note">아래 타임라인에서 조각을 누르면 앞뒤를 잘라 내거나 순서를 바꿀 수 있어요.</p>
-            )}
-          </Panel>
-          <Panel title="자막과 음악">
-            <div className="prop-buttons">
-              <button className="mini go" onClick={addCaption}>
-                ＋ 자막 (지금 시간에)
-              </button>
-              <button className="mini" onClick={() => void openMusic()}>
-                🎵 {project.music ? "음악 바꾸기" : "배경 음악"}
-              </button>
-            </div>
-            {project.music && (
-              <>
-                <p className="panel-note">🎵 {project.music.name}</p>
-                {slider("음악 소리", Math.round(project.music.volume * 100), 0, 100, 1, "%", (v) =>
-                  history.preview((p) => ({ ...p, music: p.music && { ...p.music, volume: v / 100 } })),
-                )}
-                <button className="mini" onClick={() => history.set((p) => ({ ...p, music: null }))}>
-                  음악 빼기
-                </button>
-              </>
-            )}
-            {caption && (
-              <div className="caption-edit">
-                <textarea className="caption-text" rows={2} value={caption.text} onChange={(e) => updateCaption({ ...caption, text: e.target.value }, true)} onBlur={history.commit} />
-                {slider("시작", caption.start, 0, Math.max(0.1, total), 0.1, "초", (v) => updateCaption({ ...caption, start: v, end: Math.max(caption.end, v + 0.3) }, true))}
-                {slider("끝", caption.end, caption.start + 0.3, Math.max(caption.start + 0.3, total), 0.1, "초", (v) => updateCaption({ ...caption, end: v }, true))}
-                <div className="prop-buttons">
-                  {(["top", "middle", "bottom"] as const).map((pos) => (
-                    <button key={pos} className="mini" aria-pressed={caption.position === pos} onClick={() => updateCaption({ ...caption, position: pos })}>
-                      {pos === "top" ? "위" : pos === "middle" ? "가운데" : "아래"}
-                    </button>
-                  ))}
-                  {(["small", "medium", "large"] as const).map((s) => (
-                    <button key={s} className="mini" aria-pressed={caption.size === s} onClick={() => updateCaption({ ...caption, size: s })}>
-                      {s === "small" ? "작게" : s === "medium" ? "보통" : "크게"}
-                    </button>
-                  ))}
-                  <input type="color" value={caption.color} onChange={(e) => updateCaption({ ...caption, color: e.target.value })} />
-                  <button
-                    className="mini"
-                    onClick={() => {
-                      history.set((p) => ({ ...p, captions: p.captions.filter((c) => c.id !== caption.id) }));
-                      setSelectedCaption(null);
-                    }}
-                  >
-                    🗑
-                  </button>
-                </div>
-              </div>
+              <p className="panel-note">
+                {selectedClips.length > 1
+                  ? `클립 ${selectedClips.length}개를 골랐어요. 하나만 고르면 여기서 위치, 크기, 색, 속도를 바꿔요.`
+                  : "타임라인에서 클립을 고르면 위치, 크기, 불투명도, 볼륨, 속도, 색 보정, 페이드를 바꿀 수 있어요."}
+              </p>
             )}
           </Panel>
           {aiOpen && (
             <AIAssistantPanel
               app="video"
-              greeting="안녕하세요! 영상을 넣고 “재밌는 자막 달아줘”처럼 부탁해 보세요. 자막을 만들어 드릴게요."
+              greeting="안녕하세요! “재밌는 자막 달아줘”, “처음에 큰 제목 넣어줘”처럼 부탁해 보세요. 글자 클립으로 넣어 드릴게요."
               examples={["재밌는 자막 달아줘", "처음에 큰 제목 넣어줘", "마지막에 구독 부탁 자막"]}
               getContext={() => aiContext(history.get())}
               system={AI_SYSTEM}
@@ -427,108 +714,333 @@ export function App() {
         </>
       }
       statusbar={
-        <StatusBar hint="Space: 재생/멈춤 · ← →: 조금씩 옮기기 · S: 나누기 · Delete: 고른 조각·자막 지우기 · 파일을 끌어다 놓으면 넣어져요">
-          <span>{project.portrait ? "세로 1080×1920" : "가로 1920×1080"}</span>
-          <span>조각 {project.clips.length}개</span>
-          <span>전체 {fmt(total)}</span>
+        <StatusBar hint={tool === "razor" ? "자르기 도구: 클립을 누르면 그 자리에서 잘려요 (Shift: 모든 트랙) · V 로 선택 도구" : "Space 재생 · J K L · ← → 프레임 · I O 범위 · C 자르기 · Ctrl+K 재생 위치 자르기 · Ctrl+휠 확대 · F3 기능 검색"}>
+          <span>
+            {history.dirty ? "● " : ""}
+            {name}
+          </span>
+          <span>
+            {project.sequence.width}×{project.sequence.height} · {fps}fps
+          </span>
+          <span>스냅 {snapping ? "켜짐" : "꺼짐"} (S)</span>
+          <span>길이 {timecode(duration, fps)}</span>
         </StatusBar>
       }
     >
-      <div className="video-stage">
-        <div className="video-preview">
-          <canvas ref={canvasRef} className={project.portrait ? "portrait" : ""} />
-          {!project.clips.length && (
-            <div className="video-empty">
-              <p>영상이나 사진 파일을 이 창에 끌어다 놓거나</p>
-              <button className="suite-button video-add" onClick={() => void openMedia()}>
-                ＋ 영상·사진 넣기
+      <div className="ed">
+        <section className="bin">
+          <header>
+            <b>프로젝트</b>
+            <button className="mini go" onClick={() => void importDialog()} title="영상, 사진, 소리 가져오기 (Ctrl+I)">
+              ＋ 가져오기
+            </button>
+            <button className="mini" onClick={() => addGenerated("text")} title="재생 위치에 글자 넣기 (Ctrl+T)">
+              T 글자
+            </button>
+            <button className="mini" onClick={() => addGenerated("color")} title="재생 위치에 단색 배경 넣기">
+              ■ 색
+            </button>
+          </header>
+          <div className="bin-list">
+            {project.media.length === 0 && <p className="panel-note bin-empty">영상, 사진, 음악 파일을 이 창에 끌어다 놓거나 ‘가져오기’를 눌러요.</p>}
+            {project.media.map((m) => (
+              <BinItem key={m.id} media={m} onOpen={() => overwriteAtPlayhead(m)} />
+            ))}
+          </div>
+        </section>
+
+        <section className="monitor">
+          <div className="monitor-screen">
+            <div className="monitor-frame" style={{ aspectRatio: aspect, "--ar": project.sequence.width / project.sequence.height } as CSSProperties}>
+              <canvas ref={canvasRef} onPointerDown={onMonitorDown} onPointerMove={onMonitorMove} onPointerUp={onMonitorUp} className={focus && isVisual(focus) ? "can-drag" : ""} />
+              {safeMargins && <div className="safe-margins" />}
+            </div>
+            {!project.clips.length && (
+              <div className="monitor-empty">
+                <p>여기에 편집한 영상이 나와요</p>
+                <button className="suite-button" onClick={() => void importDialog()}>
+                  ＋ 영상·사진·음악 가져오기
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="transport">
+            <span className="tc">{timecode(time, fps)}</span>
+            <div className="transport-buttons">
+              <button title="시작 표시 (I)" onClick={() => history.set((p) => ({ ...p, inPoint: time }))}>
+                {"{"}
+              </button>
+              <button title="끝 표시 (O)" onClick={() => history.set((p) => ({ ...p, outPoint: time }))}>
+                {"}"}
+              </button>
+              <button title="앞 편집점 (↑)" onClick={() => jumpEdit(-1)}>
+                ⇤
+              </button>
+              <button title="한 프레임 뒤로 (←)" onClick={() => seek(time - frame)}>
+                ◀|
+              </button>
+              <button className="play" title="재생/멈춤 (Space)" onClick={togglePlay} disabled={!duration}>
+                {playing ? "■" : "▶"}
+              </button>
+              <button title="한 프레임 앞으로 (→)" onClick={() => seek(Math.min(duration, time + frame))}>
+                |▶
+              </button>
+              <button title="다음 편집점 (↓)" onClick={() => jumpEdit(1)}>
+                ⇥
+              </button>
+              <button title="마커 (M)" onClick={addMarker}>
+                ⚑
+              </button>
+              <button title="지금 화면을 그림으로 저장" onClick={() => void snapshot()}>
+                📷
               </button>
             </div>
-          )}
-        </div>
-        <div className="video-transport">
-          <button className="play" onClick={togglePlay} disabled={!total}>
-            {playing ? "■ 멈춤" : "▶ 재생"}
-          </button>
-          <span className="video-time">
-            {fmt(time)} / {fmt(total)}
-          </span>
-          <button className="ghost video-add" onClick={() => void openMedia()}>
-            ＋ 영상·사진 넣기
-          </button>
-          <button className="ghost" onClick={addCaption}>
-            ＋ 자막
-          </button>
-          <button className="ghost" onClick={split}>
-            ✂ 나누기
-          </button>
-          <button className="export" onClick={() => void exportVideo()} disabled={!total}>
-            ⬇ 영상으로 내보내기
-          </button>
-        </div>
-        <div
-          className="timeline"
-          onPointerDown={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            if (total && (e.target as HTMLElement).classList.contains("timeline")) engine.current?.seek(((e.clientX - rect.left) / rect.width) * total);
-          }}
-        >
-          <div className="track clips">
-            {project.clips.map((c, i) => (
-              <button
-                key={c.id}
-                className={`block ${c.kind}`}
-                aria-pressed={c.id === selectedClip}
-                style={{ left: `${clipStart(project, i) * pxPerSec}%`, width: `${clipLength(c) * pxPerSec}%` }}
-                onClick={() => {
-                  setSelectedClip(c.id);
-                  setSelectedCaption(null);
-                  engine.current?.seek(clipStart(project, i));
-                }}
-              >
-                {c.kind === "image" ? "🖼 " : "🎬 "}
-                {c.name}
-              </button>
-            ))}
-            {!project.clips.length && <span className="track-empty">영상 조각이 여기에 이어져요</span>}
+            <select className="res" value={previewScale} title="재생 화질 (끊기면 낮춰요)" onChange={(e) => setPreviewScale(Number(e.target.value))}>
+              <option value={1}>전체</option>
+              <option value={0.5}>1/2</option>
+              <option value={0.25}>1/4</option>
+            </select>
+            <div className="meter" title="소리 크기">
+              <div style={{ height: `${Math.round(level * 100)}%`, background: level > 0.95 ? "#ff6b6b" : level > 0.7 ? "#ffd23f" : "#5fd3a0" }} />
+            </div>
+            <span className="tc dim">{timecode(duration, fps)}</span>
           </div>
-          <div className="track captions">
-            {project.captions.map((c) => (
-              <button
-                key={c.id}
-                className="block caption"
-                aria-pressed={c.id === selectedCaption}
-                style={{ left: `${c.start * pxPerSec}%`, width: `${Math.max(0.5, (c.end - c.start) * pxPerSec)}%` }}
-                onClick={() => {
-                  setSelectedCaption(c.id);
-                  setSelectedClip(null);
-                  engine.current?.seek(c.start);
-                }}
-              >
-                {c.text}
-              </button>
-            ))}
-            {!project.captions.length && <span className="track-empty">자막</span>}
+        </section>
+
+        <section className="timeline-area">
+          <div className="tl-tools">
+            <button aria-pressed={tool === "select"} title="선택 도구 (V)" onClick={() => setTool("select")}>
+              ➚
+            </button>
+            <button aria-pressed={tool === "razor"} title="자르기 도구 (C)" onClick={() => setTool("razor")}>
+              ✂
+            </button>
+            <button aria-pressed={snapping} title="스냅: 클립이 재생 위치, 다른 클립 끝에 착 붙어요 (S)" onClick={() => setSnapping(!snapping)}>
+              🧲
+            </button>
+            <button title="확대 (=)" onClick={() => setPxPerSec((p) => Math.min(800, p * 1.4))}>
+              ＋
+            </button>
+            <button title="축소 (-)" onClick={() => setPxPerSec((p) => Math.max(2, p / 1.4))}>
+              －
+            </button>
           </div>
-          <div className="track music">
-            {project.music ? <div className="block music" style={{ left: 0, width: "100%" }}>🎵 {project.music.name}</div> : <span className="track-empty">배경 음악</span>}
-          </div>
-          {total > 0 && <div className="playhead" style={{ left: `${(time / total) * 100}%` }} />}
-        </div>
+          <Timeline
+            project={project}
+            time={time}
+            pxPerSec={pxPerSec}
+            setPxPerSec={setPxPerSec}
+            tool={tool}
+            snapping={snapping}
+            selected={selected}
+            setSelected={setSelected}
+            onSeek={seek}
+            preview={(p) => history.preview(p)}
+            commit={history.commit}
+            set={(p) => history.set(p)}
+            onDropMedia={dropMedia}
+          />
+        </section>
       </div>
-      {exporting !== null && (
-        <div className="dialog-dim">
-          <div className="dialog export-box">
-            <h2>영상을 만들고 있어요… {Math.round(exporting * 100)}%</h2>
-            <p>처음부터 끝까지 재생하면서 녹화해요. 영상 길이만큼 걸려요. 창을 닫지 말아 주세요.</p>
-            <div className="bar">
-              <div style={{ width: `${exporting * 100}%` }} />
+
+      {newOpen && (
+        <div className="dialog-dim" onMouseDown={() => setNewOpen(false)}>
+          <div className="dialog" onMouseDown={(e) => e.stopPropagation()}>
+            <h2>새 프로젝트</h2>
+            <p>어디에 올릴 영상인가요? 화면 크기는 나중에 ‘시퀀스’ 메뉴에서 바꿀 수 있어요.</p>
+            <div className="preset-grid">
+              {SEQUENCE_PRESETS.map((s) => (
+                <button key={s.label} onClick={() => newProject(s.sequence)}>
+                  <span className="preset-shape" style={{ aspectRatio: `${s.sequence.width} / ${s.sequence.height}` }} />
+                  {s.label}
+                </button>
+              ))}
             </div>
           </div>
         </div>
       )}
+
+      {exportOpen && (
+        <ExportDialog
+          project={project}
+          name={name}
+          onClose={() => setExportOpen(false)}
+          onStart={async (opts, fileName) => {
+            const e = engine.current;
+            if (!e || !window.suite) return;
+            setExportOpen(false);
+            const signal = { cancel: false };
+            setExporting({ ratio: 0, signal });
+            try {
+              const blob = await e.record(opts, (ratio) => setExporting({ ratio, signal }), signal);
+              setExporting(null);
+              if (!blob) return notify("내보내기를 멈췄어요.");
+              const ext = opts.mimeType.includes("mp4") ? "mp4" : "webm";
+              const r = await window.suite.files.save({
+                defaultName: `${fileName}.${ext}`,
+                filters: [{ name: ext === "mp4" ? "MP4 영상" : "WebM 영상", extensions: [ext] }],
+                data: new Uint8Array(await blob.arrayBuffer()),
+              });
+              if (r.ok) notify("영상을 저장했어요! 유튜브, 디스코드에 바로 올릴 수 있어요.");
+              else if (r.reason === "error") notify(`저장하지 못했어요. ${r.message ?? ""}`);
+            } catch (err) {
+              setExporting(null);
+              notify(`영상을 만들지 못했어요. ${String(err)}`);
+            }
+          }}
+        />
+      )}
+
+      {exporting && (
+        <div className="dialog-dim">
+          <div className="dialog export-box">
+            <h2>영상을 만들고 있어요… {Math.round(exporting.ratio * 100)}%</h2>
+            <p>처음부터 끝까지 재생하면서 녹화해요. 영상 길이만큼 걸려요. 다른 창으로 가려도 괜찮지만 이 창을 닫지 말아 주세요.</p>
+            <div className="bar">
+              <div style={{ width: `${exporting.ratio * 100}%` }} />
+            </div>
+            <div className="dialog-buttons">
+              <button className="mini" onClick={() => (exporting.signal.cancel = true)}>
+                멈추기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <CommandSearch open={searchOpen} commands={menuCommands(menus)} onClose={() => setSearchOpen(false)} />
       <Toast message={toast} />
       <Tour steps={TOUR_STEPS} open={tour.open} onFinish={tour.finish} />
     </AppFrame>
+  );
+}
+
+const SHORTCUTS = `재생: Space 재생/멈춤 · J 1초 뒤로 · K 멈춤 · L 재생 (누를수록 2배, 4배)
+이동: ← → 한 프레임 (Shift: 5프레임) · ↑ ↓ 앞/다음 편집점 · Home End 처음/끝
+편집: V 선택 도구 · C 자르기 도구 · Ctrl+K 재생 위치 자르기 · Delete 지우기 · Shift+Delete 빈자리 당기며 지우기
+Ctrl+C / Ctrl+V 복사, 붙여넣기 · Ctrl+D 기본 전환(페이드) · Ctrl+T 글자 · . 마지막 미디어를 재생 위치에
+표시: I 시작 · O 끝 · M 마커 · S 스냅 켜기/끄기
+보기: = - 확대/축소 · \\ 전체 보기 · Ctrl+휠 확대 · 휠 옆으로
+파일: Ctrl+N 새 프로젝트 · Ctrl+O 열기 · Ctrl+S 저장 · Ctrl+I 가져오기 · Ctrl+M 내보내기 · F3 기능 검색`;
+
+function BinItem({ media, onOpen }: { media: MediaItem; onOpen: () => void }) {
+  const [thumb, setThumb] = useState<string | null>(null);
+  useEffect(() => void thumbnail(media).then(setThumb), [media]);
+  const icon = media.kind === "video" ? "🎬" : media.kind === "image" ? "🖼" : "🎵";
+  return (
+    <div
+      className="bin-item"
+      draggable
+      title={`${media.path}\n더블클릭: 재생 위치에 넣기 · 끌어서 타임라인에 놓기`}
+      onDoubleClick={onOpen}
+      onDragStart={(e) => {
+        e.dataTransfer.setData("application/x-baco-media", media.id);
+        e.dataTransfer.setData(`application/x-baco-${media.kind === "audio" ? "audio" : "video"}`, "1");
+        e.dataTransfer.effectAllowed = "copy";
+      }}
+    >
+      <div className={`bin-thumb ${media.kind}`} style={thumb ? { backgroundImage: `url(${thumb})` } : undefined}>
+        {!thumb && icon}
+      </div>
+      <div className="bin-meta">
+        <span className="bin-name">{media.name}</span>
+        <span className="bin-info">
+          {icon} {media.kind === "image" ? `${media.width}×${media.height}` : `${Math.floor(media.duration / 60)}:${String(Math.floor(media.duration % 60)).padStart(2, "0")}`}
+          {media.kind === "video" && ` · ${media.width}×${media.height}`}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function ExportDialog({
+  project,
+  name,
+  onClose,
+  onStart,
+}: {
+  project: Project;
+  name: string;
+  onClose: () => void;
+  onStart: (opts: Parameters<Engine["record"]>[0], fileName: string) => void;
+}) {
+  const formats = useMemo(exportFormats, []);
+  const [format, setFormat] = useState(formats[0]?.mimeType ?? "");
+  const [quality, setQuality] = useState<"high" | "medium" | "small">("high");
+  const [scale, setScale] = useState(1);
+  const [range, setRange] = useState<"all" | "inout">(project.inPoint !== null || project.outPoint !== null ? "inout" : "all");
+  const [fileName, setFileName] = useState(name === "제목 없음" ? "내 영상" : name);
+  const duration = projectDuration(project);
+  const from = range === "inout" ? (project.inPoint ?? 0) : 0;
+  const to = range === "inout" ? (project.outPoint ?? duration) : duration;
+  const pixels = project.sequence.width * project.sequence.height * scale * scale;
+  const bits = Math.round(pixels * project.sequence.fps * { high: 0.2, medium: 0.11, small: 0.06 }[quality]);
+  const sizeMB = ((bits + 192_000) * Math.max(0, to - from)) / 8 / 1024 / 1024;
+
+  return (
+    <div className="dialog-dim" onMouseDown={onClose}>
+      <div className="dialog export-dialog" onMouseDown={(e) => e.stopPropagation()}>
+        <h2>내보내기</h2>
+        <label className="form-row">
+          <span>파일 이름</span>
+          <input value={fileName} onChange={(e) => setFileName(e.target.value)} />
+        </label>
+        <label className="form-row">
+          <span>형식</span>
+          <select value={format} onChange={(e) => setFormat(e.target.value)}>
+            {formats.map((f) => (
+              <option key={f.mimeType} value={f.mimeType}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="form-row">
+          <span>크기</span>
+          <select value={scale} onChange={(e) => setScale(Number(e.target.value))}>
+            <option value={1}>
+              {project.sequence.width}×{project.sequence.height} (원래 크기)
+            </option>
+            <option value={0.5}>
+              {project.sequence.width / 2}×{project.sequence.height / 2} (절반, 가볍게)
+            </option>
+          </select>
+        </label>
+        <label className="form-row">
+          <span>화질</span>
+          <select value={quality} onChange={(e) => setQuality(e.target.value as typeof quality)}>
+            <option value="high">높음 (유튜브 권장)</option>
+            <option value="medium">보통</option>
+            <option value="small">작은 용량 (디스코드 첨부)</option>
+          </select>
+        </label>
+        <label className="form-row">
+          <span>범위</span>
+          <select value={range} onChange={(e) => setRange(e.target.value as typeof range)}>
+            <option value="all">전체 ({timecode(duration, project.sequence.fps)})</option>
+            <option value="inout" disabled={project.inPoint === null && project.outPoint === null}>
+              시작~끝 표시 (I~O)
+            </option>
+          </select>
+        </label>
+        <p className="export-summary">
+          {timecode(to - from, project.sequence.fps)} · {project.sequence.fps}fps · {(bits / 1_000_000).toFixed(1)}Mbps · 약 {sizeMB < 1 ? "1MB 미만" : `${Math.round(sizeMB)}MB`}
+          <br />
+          영상 길이만큼 재생하면서 만들어요.
+        </p>
+        <div className="dialog-buttons">
+          <button className="mini" onClick={onClose}>
+            취소
+          </button>
+          <button
+            className="mini go"
+            disabled={!format || to - from < 0.1 || !fileName.trim()}
+            onClick={() => onStart({ mimeType: format, from, to, videoBitsPerSecond: bits, scale }, fileName.trim())}
+          >
+            내보내기
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -1,5 +1,5 @@
-import { contextBridge, ipcRenderer } from "electron";
-import { IPC, type AIRequest, type OpenFileRequest, type SaveFileRequest, type SuiteBridge } from "./bridge";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
+import { IPC, type AIRequest, type OpenFileRequest, type PickFilesRequest, type SaveFileRequest, type SuiteBridge } from "./bridge";
 
 /** 각 앱의 preload 에서 한 줄로 호출한다. */
 export function exposeSuiteBridge(appId: string) {
@@ -21,6 +21,9 @@ export function exposeSuiteBridge(appId: string) {
     files: {
       save: (request: SaveFileRequest) => ipcRenderer.invoke(IPC.fileSave, request),
       open: (request: OpenFileRequest) => ipcRenderer.invoke(IPC.fileOpen, request),
+      pick: (request: PickFilesRequest) => ipcRenderer.invoke(IPC.filePick, request),
+      read: (path: string) => ipcRenderer.invoke(IPC.fileRead, path),
+      pathOf: (file: File) => webUtils.getPathForFile(file),
     },
     updates: {
       check: () => ipcRenderer.invoke(IPC.updateCheck),

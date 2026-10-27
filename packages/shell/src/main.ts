@@ -9,6 +9,7 @@ import {
   type AIRequest,
   type OpenFileRequest,
   type OpenFileResult,
+  type PickFilesRequest,
   type SaveFileRequest,
   type SaveFileResult,
 } from "./bridge";
@@ -57,6 +58,23 @@ async function handleOpenFile(event: IpcMainInvokeEvent, request: OpenFileReques
   }
 }
 
+async function handlePickFiles(event: IpcMainInvokeEvent, request: PickFilesRequest): Promise<string[]> {
+  const win = BrowserWindow.fromWebContents(event.sender)!;
+  const result = await dialog.showOpenDialog(win, {
+    filters: request.filters,
+    properties: request.multiple ? ["openFile", "multiSelections"] : ["openFile"],
+  });
+  return result.canceled ? [] : result.filePaths;
+}
+
+async function handleReadFile(_event: IpcMainInvokeEvent, path: string): Promise<Uint8Array | null> {
+  try {
+    return new Uint8Array(await readFile(path));
+  } catch {
+    return null;
+  }
+}
+
 function createWindow(options: SuiteAppOptions) {
   const win = new BrowserWindow({
     width: 1440,
@@ -73,6 +91,8 @@ function createWindow(options: SuiteAppOptions) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // 개발 중에는 화면이 http:// 에서 열려서, 디스크의 영상(file://)을 바로 틀려면 이 검사를 꺼야 한다.
+      webSecurity: !process.env.VITE_DEV_SERVER_URL,
     },
   });
 
@@ -135,6 +155,8 @@ export function startSuiteApp(options: SuiteAppOptions) {
   ipcMain.handle(IPC.aiSetKey, (_event, key: string) => setApiKey(key));
   ipcMain.handle(IPC.fileSave, handleSaveFile);
   ipcMain.handle(IPC.fileOpen, handleOpenFile);
+  ipcMain.handle(IPC.filePick, handlePickFiles);
+  ipcMain.handle(IPC.fileRead, handleReadFile);
   const autosavePath = () => join(app.getPath("userData"), `autosave-${options.appId}.json`);
   ipcMain.handle(IPC.autosaveRead, async () => {
     try {

@@ -48,6 +48,12 @@ export interface OpenFileRequest {
   binary?: boolean;
 }
 
+export interface PickFilesRequest {
+  filters: FileFilter[];
+  /** 여러 개 고르기 */
+  multiple?: boolean;
+}
+
 export type OpenFileResult =
   | { ok: true; path: string; text: string }
   | { ok: false; reason: "canceled" | "error"; message?: string };
@@ -90,6 +96,15 @@ export interface SuiteBridge {
   files: {
     save(request: SaveFileRequest): Promise<SaveFileResult>;
     open(request: OpenFileRequest): Promise<OpenFileResult>;
+    /**
+     * 파일을 고르기만 하고 경로를 돌려준다 (취소하면 빈 배열). 영상처럼 큰 파일은 내용을 넘기지 않고
+     * file:// 주소로 바로 재생한다.
+     */
+    pick(request: PickFilesRequest): Promise<string[]>;
+    /** 경로의 파일 내용을 읽는다 (소리 파형 그리기처럼 내용이 필요할 때). 없으면 null. */
+    read(path: string): Promise<Uint8Array | null>;
+    /** 끌어다 놓은 파일의 실제 경로 */
+    pathOf(file: File): string;
   };
   updates: {
     check(): Promise<UpdateCheckResult>;
@@ -104,6 +119,8 @@ export const IPC = {
   aiSetKey: "suite:ai-set-key",
   fileSave: "suite:file-save",
   fileOpen: "suite:file-open",
+  filePick: "suite:file-pick",
+  fileRead: "suite:file-read",
   setDirty: "suite:set-dirty",
   autosaveRead: "suite:autosave-read",
   autosaveWrite: "suite:autosave-write",
