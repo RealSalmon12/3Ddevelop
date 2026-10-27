@@ -3,7 +3,7 @@ import { startSuiteApp } from "@suite/shell/main";
 
 startSuiteApp({
   appId: "modeler",
-  title: "3D 모델러",
+  title: "스컬프트 3D",
   preloadPath: path.join(__dirname, "preload.cjs"),
   indexHtmlPath: path.join(__dirname, "../dist/index.html"),
   updates: { repo: "RealSalmon12/3Ddevelop", tagPrefix: "modeler-build-" },

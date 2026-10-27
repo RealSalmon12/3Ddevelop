@@ -344,7 +344,7 @@ export class ModelerScene {
   load(text: string) {
     const doc = JSON.parse(text) as SceneDocument;
     if (doc.app !== "modeler" || !Array.isArray(doc.objects)) {
-      throw new Error("3D 모델러 프로젝트 파일이 아니에요.");
+      throw new Error("스컬프트 3D 프로젝트 파일이 아니에요.");
     }
     this.selectedId = null;
     this.exitEditSilently();

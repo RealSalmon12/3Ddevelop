@@ -3,7 +3,7 @@ import type { ModelerScene } from "./ModelerScene";
 import { EXAMPLES } from "./examples";
 import { EXPORT_FORMATS, ROBLOX_TRIANGLE_LIMIT, exportScene, robloxProblems, type ExportFormat } from "./exporters";
 
-const PROJECT_FILTER = { name: "3D 모델러 프로젝트", extensions: ["nmodel"] };
+const PROJECT_FILTER = { name: "스컬프트 3D 프로젝트", extensions: ["nmodel"] };
 
 const baseName = (path: string) => path.split(/[\\/]/).pop()!.replace(/\.[^.]+$/, "");
 
@@ -13,7 +13,7 @@ export function useProjectFile(model: ModelerScene, dirty: boolean, notify: (mes
   const name = filePath ? baseName(filePath) : "제목 없음";
 
   useEffect(() => {
-    document.title = `${dirty ? "● " : ""}${name} - 3D 모델러`;
+    document.title = `${dirty ? "● " : ""}${name} - 스컬프트 3D`;
     window.suite?.window.setDirty(dirty);
   }, [name, dirty]);
 

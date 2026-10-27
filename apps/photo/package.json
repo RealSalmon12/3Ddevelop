@@ -2,7 +2,7 @@
   "name": "@suite/photo",
   "version": "0.1.0",
   "private": true,
-  "description": "누구나 스튜디오 사진 편집기",
+  "description": "누구나 스튜디오 루미 포토",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -27,7 +27,7 @@
   "author": "누구나 스튜디오",
   "build": {
     "appId": "com.nugunastudio.photo",
-    "productName": "사진 편집기",
+    "productName": "루미 포토",
     "artifactName": "NugunaStudio-Photo-Setup-${version}.${ext}",
     "directories": {
       "output": "release",
@@ -48,14 +48,14 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "사진 편집기",
+      "shortcutName": "루미 포토",
       "language": "1042"
     },
     "fileAssociations": [
       {
         "ext": "nphoto",
-        "name": "사진 편집기 파일",
-        "description": "사진 편집기 파일",
+        "name": "루미 포토 파일",
+        "description": "루미 포토 파일",
         "role": "Editor"
       }
     ],

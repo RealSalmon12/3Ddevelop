@@ -2,7 +2,7 @@
   "name": "@suite/sound",
   "version": "0.1.0",
   "private": true,
-  "description": "누구나 스튜디오 소리 편집기",
+  "description": "누구나 스튜디오 웨이브 랩",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -27,7 +27,7 @@
   "author": "누구나 스튜디오",
   "build": {
     "appId": "com.nugunastudio.sound",
-    "productName": "소리 편집기",
+    "productName": "웨이브 랩",
     "artifactName": "NugunaStudio-Sound-Setup-${version}.${ext}",
     "directories": {
       "output": "release",
@@ -48,7 +48,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "소리 편집기",
+      "shortcutName": "웨이브 랩",
       "language": "1042"
     },
     "electronVersion": "45.0.0",

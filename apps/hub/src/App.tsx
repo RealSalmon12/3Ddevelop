@@ -116,23 +116,27 @@ export function App() {
             ))}
           </div>
 
-          <h2 className="hub-section">곧 나와요</h2>
-          <div className="hub-grid">
-            {coming.map((app) => (
-              <article key={app.id} className="hub-card soon" style={{ ["--app" as string]: app.color }}>
-                <div className="hub-card-icon letter">{app.name[0]}</div>
-                <div className="hub-card-text">
-                  <h3>
-                    {app.name} <span className="hub-chip">{app.likeness}</span>
-                  </h3>
-                  <p>{app.description}</p>
-                </div>
-                <div className="hub-card-actions">
-                  <span className="hub-status">준비 중</span>
-                </div>
-              </article>
-            ))}
-          </div>
+          {coming.length > 0 && (
+            <>
+              <h2 className="hub-section">곧 나와요</h2>
+              <div className="hub-grid">
+                {coming.map((app) => (
+                  <article key={app.id} className="hub-card soon" style={{ ["--app" as string]: app.color }}>
+                    <div className="hub-card-icon letter">{app.name[0]}</div>
+                    <div className="hub-card-text">
+                      <h3>
+                        {app.name} <span className="hub-chip">{app.tagline}</span>
+                      </h3>
+                      <p>{app.description}</p>
+                    </div>
+                    <div className="hub-card-actions">
+                      <span className="hub-status">준비 중</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </>
+          )}
         </main>
 
         <aside className="hub-side">
@@ -186,7 +190,7 @@ function AppCard({
       <img className="hub-card-icon" src={ICONS[app.id]} alt="" />
       <div className="hub-card-text">
         <h3>
-          {app.name} <span className="hub-chip">{app.likeness}</span>
+          {app.name} <span className="hub-chip">{app.tagline}</span>
         </h3>
         <p>{app.description}</p>
       </div>

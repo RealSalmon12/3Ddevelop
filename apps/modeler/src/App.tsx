@@ -59,7 +59,7 @@ const SELECT_MODES: { value: SelectMode; label: string; hint: string }[] = [
 ];
 
 const TOUR_STEPS: TourStep[] = [
-  { title: "3D 모델러에 오신 걸 환영해요! 👋", body: "1분이면 기본 사용법을 익힐 수 있어요. 언제든 ‘도움말’ 메뉴에서 이 안내를 다시 볼 수 있어요." },
+  { title: "스컬프트 3D에 오신 걸 환영해요! 👋", body: "1분이면 기본 사용법을 익힐 수 있어요. 언제든 ‘도움말’ 메뉴에서 이 안내를 다시 볼 수 있어요." },
   { title: "화면 돌려보기", target: ".suite-main", body: "빈 곳을 왼쪽 버튼으로 끌면 돌려볼 수 있고, 오른쪽 버튼으로 끌면 화면이 옮겨져요. 마우스 휠로 확대/축소해요. 길을 잃으면 Home 키를 누르세요." },
   { title: "도형 추가하기", target: ".suite-menu:nth-of-type(3)", body: "‘추가’ 메뉴에서 정육면체, 구, 원기둥 같은 도형을 넣을 수 있어요. 모든 모델은 이 도형들에서 시작해요." },
   { title: "옮기고, 돌리고, 크기 바꾸기", target: ".suite-toolbar", body: "도형을 클릭해서 고른 뒤 이동(W), 회전(E), 크기(R) 도구로 손잡이를 끌어 보세요. 크기 손잡이는 끈 쪽만 늘어나요." },
@@ -231,7 +231,7 @@ export function App() {
     <AppFrame
       menubar={
         <MenuBar
-          appName="3D 모델러"
+          appName="스컬프트 3D"
           menus={menus}
           actions={
             <>
