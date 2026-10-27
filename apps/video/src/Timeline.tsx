@@ -365,7 +365,7 @@ function ClipBlock({
   useEffect(() => {
     if (media && media.kind !== "audio") void thumbnail(media).then(setThumb);
   }, [media]);
-  const graded = Object.values(clip.color).some((v) => v !== 0) || !!clip.key?.on || (!!clip.blend && clip.blend !== "source-over");
+  const graded = Object.values(clip.color).some((v) => (typeof v === "number" ? v !== 0 : !!v)) || !!clip.key?.on || (!!clip.blend && clip.blend !== "source-over");
   const keyed = Object.values(clip.params).some((p) => p.keys?.length);
   return (
     <div
@@ -396,7 +396,7 @@ function ClipBlock({
         {graded && <b className="tl-badge">fx</b>}
         {keyed && <b className="tl-badge">◆</b>}
         {clip.speed !== 1 && <b className="tl-badge">{Math.round(clip.speed * 100)}%</b>}
-        {clip.kind === "text" ? `T ${clip.text?.text.split("\n")[0] ?? ""}` : clip.name}
+        {clip.kind === "text" ? `T ${clip.text?.text.split("\n")[0] ?? ""}` : clip.kind === "adjust" ? `◐ ${clip.name}` : clip.name}
       </span>
       {clip.transitionIn && (
         <div className="tl-transition" style={{ width: Math.max(6, transitionLength(clip) * pxPerSec) }} title={`전환: ${TRANSITIONS.find((t) => t.kind === clip.transitionIn!.kind)?.label} · ${clip.transitionIn.duration.toFixed(2)}초`}>

@@ -174,6 +174,7 @@
 .tl-clip.image { background: #a77ad8; }
 .tl-clip.text { background: #d88ab7; }
 .tl-clip.color { background: #7f8aa0; }
+.tl-clip.adjust { background: repeating-linear-gradient(135deg, #8a6fd1 0 8px, #7a60c0 8px 16px); }
 .tl-clip.audio { background: #2f9d72; }
 .tl-clip.selected { box-shadow: 0 0 0 2px #fff inset; filter: brightness(1.15); }
 .tl-thumb { position: absolute; left: 0; top: 0; bottom: 0; width: 80px; background: center / cover no-repeat; opacity: 0.85; border-right: 1px solid rgba(0, 0, 0, 0.4); }
@@ -300,3 +301,4 @@
 .fx-item small { display: block; color: var(--text-dim); font-size: 11px; }
 .bin header { flex-wrap: wrap; }
 .bin-tabs button { white-space: nowrap; }
+.fx-group-label { margin: 10px 4px 4px; font-size: 11px; color: var(--text-dim); border-top: 1px solid var(--border, #333); padding-top: 8px; }

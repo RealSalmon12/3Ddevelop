@@ -9,9 +9,26 @@ import {
   transitionsAt,
   type ChromaKey,
   type Clip,
+  type ColorSettings,
   type Project,
   type TransitionKind,
 } from "./model";
+import { applyLut, lutTable } from "./lut";
+
+/** 색 보정 중 캔버스 필터로 되는 것 (밝기, 대비, 채도, 흐림) */
+function cssFilter(color: ColorSettings, extraBlur: number, scale: number) {
+  return [
+    color.exposure && `brightness(${1 + color.exposure / 100})`,
+    color.contrast && `contrast(${1 + color.contrast / 100})`,
+    color.saturation && `saturate(${1 + color.saturation / 100})`,
+    (color.blur || extraBlur) && `blur(${(color.blur + extraBlur) * scale}px)`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** 따로 그린 뒤 합쳐야 하는 보정이 있는지 */
+const needsLayer = (color: ColorSettings) => !!(color.temperature || color.tint || color.vignette || (color.lut && (color.lutAmount ?? 100) > 0));
 
 /** 전환 중인 클립이 맡은 역할: 들어오는(in) 쪽인지 나가는(out) 쪽인지, 진행률 */
 interface TransitionRole {
@@ -214,6 +231,10 @@ export class Engine {
     const transitions = transitionsAt(this.project, this.time);
     for (const c of activeClips(this.project, this.time, "visual")) {
       const tr = transitions.get(c.id);
+      if (c.kind === "adjust") {
+        this.drawAdjust(ctx, c, tr?.progress);
+        continue;
+      }
       if (!tr) {
         this.drawClip(ctx, c, scale);
         continue;
@@ -334,15 +355,8 @@ export class Engine {
     }
 
     const color = c.color;
-    const graded = color.temperature || color.tint || color.vignette;
-    const filter = [
-      color.exposure && `brightness(${1 + color.exposure / 100})`,
-      color.contrast && `contrast(${1 + color.contrast / 100})`,
-      color.saturation && `saturate(${1 + color.saturation / 100})`,
-      (color.blur || blur) && `blur(${(color.blur + blur) * scale}px)`,
-    ]
-      .filter(Boolean)
-      .join(" ");
+    const graded = needsLayer(color);
+    const filter = cssFilter(color, blur, scale);
     const blend = c.blend ?? "source-over";
 
     // 색 온도, 비네트는 클립 모양에만 입혀야 해서 따로 그린 뒤 합친다.
@@ -383,33 +397,73 @@ export class Engine {
     target.restore();
 
     if (layer) {
-      const lw = layer.canvas.width;
-      const lh = layer.canvas.height;
-      layer.save();
-      layer.setTransform(1, 0, 0, 1, 0, 0);
-      layer.globalCompositeOperation = "source-atop";
-      if (color.temperature) {
-        layer.fillStyle = color.temperature > 0 ? `rgba(255,140,30,${(color.temperature / 100) * 0.22})` : `rgba(40,130,255,${(-color.temperature / 100) * 0.22})`;
-        layer.fillRect(0, 0, lw, lh);
-      }
-      if (color.tint) {
-        layer.fillStyle = color.tint > 0 ? `rgba(255,60,200,${(color.tint / 100) * 0.15})` : `rgba(60,255,120,${(-color.tint / 100) * 0.15})`;
-        layer.fillRect(0, 0, lw, lh);
-      }
-      if (color.vignette) {
-        const g = layer.createRadialGradient(lw / 2, lh / 2, Math.min(lw, lh) * 0.3, lw / 2, lh / 2, Math.hypot(lw, lh) / 2);
-        g.addColorStop(0, "rgba(0,0,0,0)");
-        g.addColorStop(1, `rgba(0,0,0,${(color.vignette / 100) * 0.85})`);
-        layer.fillStyle = g;
-        layer.fillRect(0, 0, lw, lh);
-      }
-      layer.restore();
+      this.grade(layer, color);
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = opacity;
       ctx.globalCompositeOperation = blend;
       ctx.drawImage(layer.canvas, 0, 0);
       ctx.restore();
+    }
+  }
+
+  /** 조정 레이어: 지금까지 그린 화면 전체(아래 트랙)에 색 보정을 입힌다. 크롭으로 일부만 보정할 수도 있다. */
+  private drawAdjust(ctx: CanvasRenderingContext2D, c: Clip, progress?: number) {
+    const local = this.time - c.start;
+    let opacity = (evalParam(c.params.opacity, local) / 100) * fadeFactor(c, this.time);
+    if (progress !== undefined) opacity *= progress;
+    if (opacity <= 0.001) return;
+    const canvas = ctx.canvas;
+    const lw = canvas.width;
+    const lh = canvas.height;
+    const layer = this.prepareScratch(lw, lh);
+    layer.filter = cssFilter(c.color, 0, lw / this.project.sequence.width) || "none";
+    layer.drawImage(canvas, 0, 0);
+    layer.filter = "none";
+    this.grade(layer, c.color);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (c.crop) {
+      const { left, right, top, bottom } = c.crop;
+      ctx.beginPath();
+      ctx.rect((lw * left) / 100, (lh * top) / 100, (lw * (100 - left - right)) / 100, (lh * (100 - top - bottom)) / 100);
+      ctx.clip();
+    }
+    ctx.globalAlpha = opacity;
+    ctx.globalCompositeOperation = c.blend ?? "source-over";
+    ctx.drawImage(layer.canvas, 0, 0);
+    ctx.restore();
+  }
+
+  /** 색온도, 색조, 비네트, LUT: 이미 그린 모양(투명하지 않은 곳)에만 입힌다 */
+  private grade(layer: CanvasRenderingContext2D, color: ColorSettings) {
+    const lw = layer.canvas.width;
+    const lh = layer.canvas.height;
+    layer.save();
+    layer.setTransform(1, 0, 0, 1, 0, 0);
+    layer.globalCompositeOperation = "source-atop";
+    if (color.temperature) {
+      layer.fillStyle = color.temperature > 0 ? `rgba(255,140,30,${(color.temperature / 100) * 0.22})` : `rgba(40,130,255,${(-color.temperature / 100) * 0.22})`;
+      layer.fillRect(0, 0, lw, lh);
+    }
+    if (color.tint) {
+      layer.fillStyle = color.tint > 0 ? `rgba(255,60,200,${(color.tint / 100) * 0.15})` : `rgba(60,255,120,${(-color.tint / 100) * 0.15})`;
+      layer.fillRect(0, 0, lw, lh);
+    }
+    if (color.vignette) {
+      const g = layer.createRadialGradient(lw / 2, lh / 2, Math.min(lw, lh) * 0.3, lw / 2, lh / 2, Math.hypot(lw, lh) / 2);
+      g.addColorStop(0, "rgba(0,0,0,0)");
+      g.addColorStop(1, `rgba(0,0,0,${(color.vignette / 100) * 0.85})`);
+      layer.fillStyle = g;
+      layer.fillRect(0, 0, lw, lh);
+    }
+    layer.restore();
+    const amount = (color.lutAmount ?? 100) / 100;
+    const lut = color.lut && amount > 0 ? lutTable(color.lut, this.project.luts) : null;
+    if (lut) {
+      const img = layer.getImageData(0, 0, lw, lh);
+      applyLut(img.data, lut, amount);
+      layer.putImageData(img, 0, 0);
     }
   }
 
