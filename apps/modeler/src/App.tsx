@@ -24,6 +24,7 @@ import {
 } from "@suite/ui";
 import type { SelectMode } from "./mesh/selection";
 import { PropertiesPanel } from "./panels/PropertiesPanel";
+import { RenderDialog } from "./panels/RenderDialog";
 import { AI_SYSTEM, AI_TOOL, applyPlan, sceneContext, type ScenePlan } from "./scene/aiModeling";
 import { EXPORT_FORMATS, triangleCount } from "./scene/exporters";
 import { EXAMPLES } from "./scene/examples";
@@ -84,7 +85,8 @@ H 숨기기 · Shift+H 고른 것만 보기 · Alt+H 모두 보이기 · Z 보�
 숫자패드 1/3/7 앞/옆/위 (Ctrl 누르면 반대쪽) · 5 원근/평면 · 2/4/6/8 돌려 보기 · 9 반대편
 Ctrl+Z 되돌리기 · Ctrl+Y 다시 실행 · Ctrl+S 저장 · Home 처음 시점 · . 선택한 것 가운데로
 Ctrl+1/2/3 매끈하게 (서브디비전) · Ctrl+0 매끈하게 끄기 · B 박스 선택
-Tab 편집 모드 · 1/2/3 점/선/면 · A 모두 고르기 · Alt+클릭 한 줄 고르기 · E 돌출 · I 안쪽 면 · Ctrl+R 루프 컷 · M 합치기`;
+Tab 편집 모드 · 1/2/3 점/선/면 · A 모두 고르기 · Alt+클릭 한 줄 고르기 · E 돌출 · I 안쪽 면 · Ctrl+R 루프 컷 · M 합치기
+O 비례 편집 (G/R/S 중 휠로 반경) · F12 렌더 (PNG, 투명 배경)`;
 
 const SHORTCUTS: Record<string, ToolId> = { q: "select", w: "move", e: "rotate", t: "scale" };
 const MODAL_KEYS = { g: "grab", r: "rotate", s: "scale" } as const;
@@ -107,6 +109,8 @@ export function App() {
   const [aiOpen, setAiOpen] = useState(true);
   const [bloom, setBloom] = useState(true);
   const [snap, setSnap] = useState(false);
+  const [proportional, setProportional] = useState(false);
+  const [renderOpen, setRenderOpen] = useState(false);
   const [shading, setShading] = useState<Shading>("solid");
   const [ortho, setOrtho] = useState(false);
   const [search, setSearch] = useState<null | { kind: "all" } | { kind: "add"; at: { x: number; y: number } }>(null);
@@ -126,6 +130,7 @@ export function App() {
   useEffect(() => viewport?.setTool(tool), [viewport, tool]);
   useEffect(() => viewport?.setBloom(bloom), [viewport, bloom]);
   useEffect(() => viewport?.setSnap(snap), [viewport, snap]);
+  useEffect(() => viewport?.setProportional(proportional), [viewport, proportional]);
   useEffect(() => viewport?.setShading(shading), [viewport, shading]);
   const toggleOrtho = () => viewport && setOrtho(viewport.toggleOrthographic());
   const view = (v: ViewName) => viewport?.setView(v);
@@ -177,6 +182,10 @@ export function App() {
       }
       const key = e.key.toLowerCase();
 
+      if (key === "f12") {
+        e.preventDefault();
+        return setRenderOpen(true);
+      }
       if (key === "f3" || (key === " " && e.ctrlKey)) {
         e.preventDefault();
         return setSearch({ kind: "all" });
@@ -242,6 +251,10 @@ export function App() {
         if (key === "i") return void (model.inset() || notify(needFaces));
         if (key === "m") return void (model.merge() || notify("합칠 점을 두 개 이상 골라 주세요."));
         if (key === "a") return model.toggleSelectAll();
+        if (key === "o") {
+          setProportional((on) => !on);
+          return;
+        }
         if (MODE_KEYS[key]) return model.setSelectMode(MODE_KEYS[key]);
       }
       if (e.shiftKey) {
@@ -309,6 +322,8 @@ export function App() {
         { label: "고른 것만 보기 (나머지 숨기기)", shortcut: "Shift+H", disabled: !selected || !!edit, onSelect: () => model.hideSelected(true) },
         { label: "숨긴 것 모두 보이기", shortcut: "Alt+H", disabled: !items.some((i) => i.hidden), onSelect: () => model.unhideAll() },
         { label: edit ? "편집 모드 끝내기" : "편집 모드 (점, 선, 면 고치기)", shortcut: "Tab", onSelect: () => explainEdit(model.toggleEdit()) },
+        { label: proportional ? "비례 편집 끄기" : "비례 편집 켜기 (둘레 점도 부드럽게 따라오기)", shortcut: "O", onSelect: () => setProportional(!proportional) },
+        { label: "모디파이어 적용 (대칭·배열·매끈하게를 모양에 굳히기)", disabled: !selected || selected.kind === "effect", onSelect: () => void (model.applySubdivision() || notify("고른 오브젝트에 켜진 모디파이어가 없어요. 속성 패널에서 대칭, 배열, 매끈하게를 켜 보세요.")) },
       ],
     },
     {
@@ -335,6 +350,10 @@ export function App() {
         { label: "처음 시점으로", shortcut: "Home", onSelect: () => viewport?.resetView() },
         { label: "선택한 것 (없으면 전체) 가운데로", shortcut: ".", onSelect: () => viewport?.frameSelected() },
       ],
+    },
+    {
+      label: "렌더",
+      items: [{ label: "이미지 렌더 (PNG, 투명 배경)", shortcut: "F12", onSelect: () => setRenderOpen(true) }],
     },
     {
       label: "도움말",
@@ -432,6 +451,7 @@ export function App() {
             {file.name}
           </span>
           {snap && <span>칸 맞춤 켜짐 (Shift+Tab)</span>}
+          {proportional && edit && <span>비례 편집 켜짐 (O · 휠로 반경)</span>}
           {shading !== "solid" && <span>{SHADING_LABEL[shading]} (Z)</span>}
           {ortho && <span>평면 보기 (숫자패드 5)</span>}
           <span title="화면에 그려지는 삼각형 수예요. 게임에 넣을 때는 적을수록 가벼워요.">
@@ -474,6 +494,7 @@ export function App() {
         commands={search?.kind === "add" ? addCommands : menuCommands(menus)}
         onClose={() => setSearch(null)}
       />
+      {renderOpen && viewport && <RenderDialog viewport={viewport} name={file.name} notify={notify} onClose={() => setRenderOpen(false)} />}
       <Toast message={toast} />
       <Tour steps={TOUR_STEPS} open={tour.open} onFinish={tour.finish} />
     </AppFrame>

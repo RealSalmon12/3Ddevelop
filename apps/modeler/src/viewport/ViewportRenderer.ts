@@ -43,6 +43,7 @@ export class ViewportRenderer {
   private readout: HTMLDivElement;
   private tool: ToolId = "move";
   private snap = false;
+  private proportional = false;
   private shading: Shading = "solid";
   /** 마지막으로 본 마우스 위치 (캔버스 기준). G/R/S 를 누를 때 여기서 시작한다. */
   private pointer = { x: 0, y: 0, inside: false };
@@ -73,12 +74,15 @@ export class ViewportRenderer {
   private bloom: UnrealBloomPass;
   private unsubscribe: () => void;
   private frame = 0;
+  /** 렌더(F12) 때 숨길 격자, 축 선 */
+  private helpers: THREE.Object3D[] = [];
 
   constructor(
     private container: HTMLElement,
     private model: ModelerScene,
   ) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    // alpha: 렌더(F12)에서 배경을 투명하게 뽑을 수 있게
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.shadowMap.enabled = true;
     // 아주 밝은 빛도 하얗게 뭉개지지 않고 색이 남도록
@@ -161,6 +165,7 @@ export class ViewportRenderer {
       scene: this.scene,
       pointer: () => (this.pointer.inside ? this.pointer : { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 }),
       snapEnabled: () => this.snap,
+      proportional: () => this.proportional,
       changed: (target, poly) => {
         if (target.type === "vertices" && poly) {
           this.model.setEditingPoly(poly);
@@ -227,6 +232,7 @@ export class ViewportRenderer {
     const axes = [axis(0xd9534f, new THREE.Vector3(1, 0, 0)), axis(0x4a7fd9, new THREE.Vector3(0, 0, 1))];
     axes.forEach((a) => (a.position.y = 0.004));
     this.scene.add(...axes);
+    this.helpers = [grid, ...axes];
 
     // 그림자만 보이는 투명 바닥. 깊이를 기록하지 않아야 격자가 가려지지 않는다.
     const ground = new THREE.Mesh(
@@ -277,6 +283,11 @@ export class ViewportRenderer {
     this.transform.setTranslationSnap(enabled ? 0.25 : null);
     this.transform.setRotationSnap(enabled ? THREE.MathUtils.degToRad(15) : null);
     this.transform.setScaleSnap(enabled ? 0.25 : null);
+  }
+
+  /** 비례 편집 (O) */
+  setProportional(enabled: boolean) {
+    this.proportional = enabled;
   }
 
   setBloom(enabled: boolean) {
@@ -784,6 +795,52 @@ export class ViewportRenderer {
       particles.setViewport(height, this.perspective.fov);
       particles.update(dt);
     }
+  }
+
+  /**
+   * 렌더 (블렌더의 F12): 지금 시점 그대로, 격자·손잡이·선택 표시 없이 고화질 그림을 만든다.
+   * 두 배 크기로 그린 뒤 줄여서 계단 현상을 없앤다.
+   */
+  renderImage(width: number, height: number, opts: { transparent: boolean; bloom: boolean; background?: string }): HTMLCanvasElement {
+    const ss = Math.max(1, Math.min(2, Math.floor(4096 / Math.max(width, height))));
+    const W = width * ss;
+    const H = height * ss;
+    const hidden = [...this.helpers, this.selectionBox, this.transform.getHelper(), this.pivot, this.overlay?.group].filter((o): o is THREE.Object3D => !!o && o.visible);
+    hidden.forEach((o) => (o.visible = false));
+    const background = this.scene.background;
+    this.scene.background = opts.transparent ? null : new THREE.Color(opts.background ?? "#232838");
+    this.renderer.setClearColor(0x000000, 0);
+    applyShading(this.model.allMeshes(), "solid");
+
+    const aspect = W / H;
+    this.perspective.aspect = aspect;
+    this.perspective.updateProjectionMatrix();
+    if (this.camera === this.orthographic) {
+      const half = this.orthographic.top;
+      this.orthographic.left = -half * aspect;
+      this.orthographic.right = half * aspect;
+      this.orthographic.updateProjectionMatrix();
+    }
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(W, H, false);
+    this.composer.setPixelRatio(1);
+    this.composer.setSize(W, H);
+    if (opts.bloom && !opts.transparent && this.bloom.enabled) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
+
+    const out = document.createElement("canvas");
+    out.width = width;
+    out.height = height;
+    const g = out.getContext("2d")!;
+    g.imageSmoothingQuality = "high";
+    g.drawImage(this.renderer.domElement, 0, 0, W, H, 0, 0, width, height);
+
+    // 되돌리기
+    hidden.forEach((o) => (o.visible = true));
+    this.scene.background = background;
+    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.resize();
+    return out;
   }
 
   private resize() {

@@ -202,13 +202,73 @@ function SmoothRows({ model, item }: { model: ModelerScene; item: ObjectData }) 
             onChange={(v) => model.setSubdivision(Number(v))}
             options={LEVELS.map((v) => ({ value: v, label: v === "0" ? "끔" : v, hint: v === "0" ? "끄기 (Ctrl+0)" : `${v}단계 (Ctrl+${v})` }))}
           />
-          {level > 0 && (
-            <button className="prop-small-button" title="지금 보이는 둥근 모양을 진짜 점, 선, 면으로 바꿔요. 그 뒤로 하나하나 고칠 수 있어요." onClick={() => model.applySubdivision()}>
-              적용
-            </button>
+        </div>
+      </div>
+      <div className="prop-row">
+        <span className="prop-label" title="오브젝트 가운데를 기준으로 반대쪽을 똑같이 만들어요. 한쪽만 고치면 반대쪽도 같이 바뀌어요 (블렌더의 Mirror 모디파이어). 편집 모드에서 반쪽을 지우고 쓰면 가운데가 깔끔하게 붙어요.">
+          대칭
+        </span>
+        <div className="prop-inline">
+          {(["x", "y", "z"] as const).map((a) => {
+            const on = item.mirror?.includes(a) ?? false;
+            return (
+              <button
+                key={a}
+                className="prop-toggle"
+                aria-pressed={on}
+                title={`${a.toUpperCase()}축으로 비추기`}
+                onClick={() => model.update(item.id, { mirror: on ? (item.mirror ?? []).filter((x) => x !== a) : [...(item.mirror ?? []), a] })}
+              >
+                {a.toUpperCase()}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="prop-row">
+        <span className="prop-label" title="같은 모양을 줄지어 늘어놓아요. 계단, 울타리, 사슬 만들 때 좋아요 (블렌더의 Array 모디파이어).">
+          배열
+        </span>
+        <div className="prop-inline">
+          <input
+            className="prop-count"
+            type="number"
+            min={1}
+            max={64}
+            value={item.array?.count ?? 1}
+            title="모두 몇 개 (1 이면 끔)"
+            onChange={(e) => {
+              const count = Math.max(1, Math.min(64, Math.round(Number(e.target.value) || 1)));
+              model.update(item.id, { array: count > 1 ? { count, offset: item.array?.offset ?? [1.1, 0, 0] } : undefined });
+            }}
+          />
+          <span className="prop-unit">개</span>
+          {item.array && (
+            <select
+              className="prop-select"
+              title="늘어놓을 방향과 간격 (모양 크기 기준)"
+              value={item.array.offset.join(",")}
+              onChange={(e) => model.update(item.id, { array: { count: item.array!.count, offset: e.target.value.split(",").map(Number) as [number, number, number] } })}
+            >
+              <option value="1,0,0">X 방향 · 붙여서</option>
+              <option value="1.1,0,0">X 방향 · 조금 띄워서</option>
+              <option value="1.5,0,0">X 방향 · 넓게</option>
+              <option value="0,1,0">Y 방향 (위로 쌓기)</option>
+              <option value="0,0,1.1">Z 방향</option>
+              <option value="1,1,0">계단 (X 와 Y)</option>
+              <option value="1,0.5,0">완만한 계단</option>
+            </select>
           )}
         </div>
       </div>
+      {(level > 0 || !!item.mirror?.length || !!item.array) && (
+        <div className="prop-row">
+          <span className="prop-label" />
+          <button className="prop-small-button" title="지금 보이는 모양(대칭, 배열, 매끈하게)을 진짜 점, 선, 면으로 바꿔요. 그 뒤로 하나하나 고칠 수 있어요." onClick={() => model.applySubdivision()}>
+            모디파이어 적용
+          </button>
+        </div>
+      )}
       <div className="prop-row">
         <span className="prop-label">면 잇기</span>
         <select

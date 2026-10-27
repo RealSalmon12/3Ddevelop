@@ -34,6 +34,8 @@ interface ModalHost {
   /** 마지막으로 본 마우스 위치 (캔버스 기준 픽셀) */
   pointer(): { x: number; y: number };
   snapEnabled(): boolean;
+  /** 비례 편집 (블렌더의 O): 고른 점 둘레의 점도 거리에 따라 조금씩 따라온다 */
+  proportional(): boolean;
   /** 대상이 바뀐 뒤 화면을 다시 그리라고 알린다. */
   changed(target: ModalTarget, poly?: PolyMesh): void;
   finished(confirmed: boolean): void;
@@ -65,6 +67,11 @@ export class ModalTransform {
     meshWorldInverse?: THREE.Matrix4;
   } | null = null;
   private axisLine: THREE.Line | null = null;
+  /** 비례 편집 반경 (월드). 휠이나 PageUp/PageDown 으로 바꾼다. */
+  private radius = 1;
+  /** 비례 편집 때 따라 움직일 점: 처음 월드 위치와 고른 점까지 거리 */
+  private falloff: Map<number, { world: THREE.Vector3; dist: number }> | null = null;
+  private radiusRing: THREE.LineLoop | null = null;
 
   constructor(private host: ModalHost) {}
 
@@ -102,6 +109,18 @@ export class ModalTransform {
         this.pivot.add(w);
       });
       this.pivot.divideScalar(Math.max(vertices.size, 1));
+      this.falloff = null;
+      if (this.host.proportional()) {
+        this.falloff = new Map();
+        const picked = [...world.values()];
+        poly.vertices.forEach((v, i) => {
+          if (vertices.has(i)) return;
+          const w = new THREE.Vector3(...v).applyMatrix4(mesh.matrixWorld);
+          let dist = Infinity;
+          for (const p of picked) dist = Math.min(dist, p.distanceTo(w));
+          this.falloff!.set(i, { world: w, dist });
+        });
+      }
       this.start = {
         position: new THREE.Vector3(),
         quaternion: new THREE.Quaternion(),
@@ -123,6 +142,7 @@ export class ModalTransform {
     window.addEventListener("pointermove", this.onMove, true);
     window.addEventListener("pointerdown", this.onDown, true);
     window.addEventListener("contextmenu", this.onContext, true);
+    window.addEventListener("wheel", this.onWheel, { capture: true, passive: false });
     this.updateAxisLine();
     this.apply();
   }
@@ -146,6 +166,8 @@ export class ModalTransform {
       this.typed = this.typed.startsWith("-") ? this.typed.slice(1) : `-${this.typed}`;
     } else if (key === "backspace") {
       this.typed = this.typed.slice(0, -1);
+    } else if (key === "pageup" || key === "pagedown") {
+      this.radius = Math.max(0.05, Math.min(100, this.radius * (key === "pageup" ? 1.15 : 1 / 1.15)));
     } else if (key === "g" || key === "r" || key === "s") {
       // 하는 도중에 다른 변형으로 바꾸기 (블렌더처럼)
       const next = ({ g: "grab", r: "rotate", s: "scale" } as const)[key];
@@ -195,11 +217,23 @@ export class ModalTransform {
 
   private onContext = (e: Event) => e.preventDefault();
 
+  /** 비례 편집 중이면 휠로 반경을 바꾼다 (화면 확대 대신) */
+  private onWheel = (e: WheelEvent) => {
+    if (!this.falloff) return;
+    e.preventDefault();
+    e.stopPropagation();
+    this.radius = Math.max(0.05, Math.min(100, this.radius * (e.deltaY < 0 ? 1 / 1.15 : 1.15)));
+    this.apply();
+  };
+
   private finish(confirmed: boolean) {
     const options = this.options;
     if (!confirmed) this.restore();
     window.removeEventListener("pointermove", this.onMove, true);
     window.removeEventListener("pointerdown", this.onDown, true);
+    window.removeEventListener("wheel", this.onWheel, true);
+    this.removeRing();
+    this.falloff = null;
     // 오른쪽 클릭으로 취소할 때 뒤따르는 메뉴 이벤트까지 막고 나서 뗀다.
     setTimeout(() => window.removeEventListener("contextmenu", this.onContext, true), 0);
     this.removeAxisLine();
@@ -379,13 +413,29 @@ export class ModalTransform {
         const local = world.clone().applyMatrix4(delta).applyMatrix4(start.meshWorldInverse!);
         next.vertices[v] = [local.x, local.y, local.z];
       });
+      if (this.falloff) {
+        this.falloff.forEach(({ world, dist }, v) => {
+          if (dist >= this.radius) {
+            next.vertices[v] = [...target.poly.vertices[v]];
+            return;
+          }
+          // 부드러운 감쇠: 가까울수록 많이, 반경 끝에서 0
+          const t = 1 - dist / this.radius;
+          const w = t * t * (3 - 2 * t);
+          const moved = world.clone().applyMatrix4(delta);
+          const local = world.clone().lerp(moved, w).applyMatrix4(start.meshWorldInverse!);
+          next.vertices[v] = [local.x, local.y, local.z];
+        });
+        this.updateRing();
+      }
       this.host.changed(target, next);
     }
 
     const typed = this.typed ? ` · 입력: ${this.typed}` : "";
     const snap = this.snapping() ? " · 칸 맞춤" : "";
+    const prop = this.falloff ? ` · 비례 편집 반경 ${fmt(this.radius, 2)} (휠로 조절)` : "";
     this.host.readout(
-      `${this.options.label ?? KIND_LABEL[this.kind]}${axisLabel} · ${text}${typed}${snap}\n` +
+      `${this.options.label ?? KIND_LABEL[this.kind]}${axisLabel} · ${text}${typed}${snap}${prop}\n` +
         "클릭·Enter 확정 · 오른쪽 클릭·Esc 취소 · X/Y/Z 방향 고정 · 숫자로 값 입력 · Shift 천천히 · Ctrl 칸 맞춤",
     );
   }
@@ -405,6 +455,31 @@ export class ModalTransform {
     this.axisLine.renderOrder = 999;
     this.axisLine.raycast = () => {};
     this.host.scene.add(this.axisLine);
+  }
+
+  /** 비례 편집 반경을 화면을 마주 보는 동그라미로 */
+  private updateRing() {
+    if (!this.radiusRing) {
+      const pts = Array.from({ length: 64 }, (_, i) => new THREE.Vector3(Math.cos((i / 64) * Math.PI * 2), Math.sin((i / 64) * Math.PI * 2), 0));
+      this.radiusRing = new THREE.LineLoop(
+        new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({ color: 0xffc83d, depthTest: false, transparent: true, opacity: 0.7 }),
+      );
+      this.radiusRing.renderOrder = 999;
+      this.radiusRing.raycast = () => {};
+      this.host.scene.add(this.radiusRing);
+    }
+    this.radiusRing.position.copy(this.pivot);
+    this.radiusRing.quaternion.copy(this.host.camera().quaternion);
+    this.radiusRing.scale.setScalar(this.radius);
+  }
+
+  private removeRing() {
+    if (!this.radiusRing) return;
+    this.radiusRing.removeFromParent();
+    this.radiusRing.geometry.dispose();
+    (this.radiusRing.material as THREE.Material).dispose();
+    this.radiusRing = null;
   }
 
   private removeAxisLine() {
