@@ -3,7 +3,7 @@ import { Panel } from "@suite/ui";
 import type { DocSnapshot, PixelDoc } from "../doc/PixelDoc";
 
 /** 실제 크기 미리보기. 애니메이션이면 재생되고, 이어 붙여 보면 텍스처가 자연스럽게 이어지는지 볼 수 있다. */
-export function PreviewPanel({ doc, snap, playing }: { doc: PixelDoc; snap: DocSnapshot; playing: boolean }) {
+export function PreviewPanel({ doc, snap, playing, tag }: { doc: PixelDoc; snap: DocSnapshot; playing: boolean; tag: number | null }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [tiled, setTiled] = useState(false);
   const [loop, setLoop] = useState(true);
@@ -12,18 +12,19 @@ export function PreviewPanel({ doc, snap, playing }: { doc: PixelDoc; snap: DocS
   // 타임라인이 재생 중이 아니면 미리보기가 스스로 재생한다
   useEffect(() => {
     if (playing || !loop || snap.frames.length < 2) return setShown(snap.frame);
-    let f = snap.frame;
+    const seq = doc.sequence(tag);
+    let i = Math.max(0, seq.indexOf(snap.frame));
     let timer = 0;
     const step = () => {
-      setShown(f);
+      setShown(seq[i]);
       timer = window.setTimeout(() => {
-        f = (f + 1) % doc.frames.length;
+        i = (i + 1) % seq.length;
         step();
-      }, doc.frames[f]?.duration ?? 100);
+      }, doc.frames[seq[i]]?.duration ?? 100);
     };
     step();
     return () => clearTimeout(timer);
-  }, [doc, playing, loop, snap.frames.length, snap.frame]);
+  }, [doc, playing, loop, snap.frames.length, snap.frame, snap.tags, tag]);
 
   useEffect(() => {
     const canvas = ref.current!;
@@ -45,7 +46,7 @@ export function PreviewPanel({ doc, snap, playing }: { doc: PixelDoc; snap: DocS
   }, [doc, snap, tiled, shown]);
 
   return (
-    <Panel title="미리보기">
+    <Panel title={tag !== null && snap.tags[tag] ? `미리보기 · 🏷 ${snap.tags[tag].name}` : "미리보기"}>
       <div className="preview-box">
         <canvas ref={ref} />
       </div>

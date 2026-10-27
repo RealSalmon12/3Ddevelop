@@ -239,3 +239,38 @@ tr.current .tl-name { color: var(--accent); font-weight: 700; }
 .cel-thumb { width: 26px; height: 26px; object-fit: contain; image-rendering: pixelated; vertical-align: middle; background: repeating-conic-gradient(#4a4f66 0% 25%, #5b6179 0% 50%) 0 0 / 8px 8px; border-radius: 3px; }
 .cel-empty { color: #4a5068; font-size: 10px; }
 .suite-dock { bottom: calc(var(--timeline-h) + 14px); }
+
+/* ── 태그 ── */
+.tl-grid thead tr.tl-tags th { top: auto; height: 20px; }
+.tl-tag-head { position: sticky; left: 0; z-index: 3; padding: 0 8px; text-align: left; font-weight: 500; color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+.tl-tags td { height: 20px; padding: 1px 1px 0; background: var(--bg-panel); }
+.tl-tag-cell { position: relative; }
+.tl-tag {
+  display: block;
+  width: 100%;
+  height: 18px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px 4px 0 0;
+  background: color-mix(in srgb, var(--tag) 30%, transparent);
+  box-shadow: inset 0 2px 0 var(--tag);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.tl-tag:hover { background: color-mix(in srgb, var(--tag) 45%, transparent); }
+.tl-tag.active { background: var(--tag); color: #10131c; }
+.tag-dialog .form-row input[type="text"] { flex: 1; height: 30px; padding: 0 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-s); font: inherit; }
+.tag-dialog .seg-row { flex: 1; margin: 0; }
+.tag-colors { display: flex; gap: 6px; }
+.tag-colors button { width: 24px; height: 24px; border: 2px solid transparent; border-radius: 50%; cursor: pointer; }
+.tag-colors button[aria-pressed="true"] { border-color: #fff; box-shadow: 0 0 0 2px var(--bg-panel) inset; }
+.dialog-actions .grow { flex: 1; }
+.suite-ai-link.danger { color: #ff7a7a; }
+.pixel-text { width: 140px; height: 28px; padding: 0 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-s); font: inherit; font-size: 12px; }

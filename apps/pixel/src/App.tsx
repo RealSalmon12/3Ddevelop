@@ -69,6 +69,11 @@ export function App() {
   const [size, setSize] = useState(1);
   const [symmetry, setSymmetry] = useState<Symmetry>("none");
   const [filled, setFilled] = useState(false);
+  const [gradient, setGradient] = useState<"linear" | "radial">("linear");
+  const [gradientDither, setGradientDither] = useState(true);
+  const [text, setText] = useState("HELLO");
+  const [textSize, setTextSize] = useState(12);
+  const [textBold, setTextBold] = useState(false);
   const [grid, setGrid] = useState(true);
   const [contiguous, setContiguous] = useState(true);
   const [pixelPerfect, setPixelPerfect] = useState(true);
@@ -76,9 +81,12 @@ export function App() {
   const [tile, setTile] = useState(false);
   const [onion, setOnion] = useState(false);
   const [playing, setPlaying] = useState(false);
+  /** 고른 태그: 재생, 미리보기, 내보내기가 이 태그의 프레임만 쓴다 */
+  const [activeTagRaw, setActiveTag] = useState<number | null>(null);
+  const activeTag = activeTagRaw !== null && snap.tags[activeTagRaw] ? activeTagRaw : null;
   const [aiOpen, setAiOpen] = useState(false);
   const [dialog, setDialog] = useState<DialogKind>(null);
-  const [exportOpts, setExportOpts] = useState<ExportOptions>({ kind: "png", scale: 1, columns: 0, padding: 0 });
+  const [exportOpts, setExportOpts] = useState<ExportOptions>({ kind: "png", scale: 1, columns: 0, padding: 0, tag: null });
   const [searchOpen, setSearchOpen] = useState(false);
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const [zoom, setZoom] = useState(16);
@@ -110,16 +118,21 @@ export function App() {
       notify("프레임이 하나뿐이에요. 타임라인의 ‘⧉ 복사’로 프레임을 늘려 보세요.");
       return;
     }
+    // 태그를 골랐으면 그 태그의 순서(앞으로, 거꾸로, 왕복)대로
+    const seq = doc.sequence(activeTag);
+    let i = Math.max(0, seq.indexOf(doc.frame));
     let timer = 0;
     const step = () => {
       timer = window.setTimeout(() => {
-        doc.setFrame((doc.frame + 1) % doc.frames.length);
+        i = (i + 1) % seq.length;
+        doc.setFrame(seq[i]);
         step();
       }, doc.frames[doc.frame].duration);
     };
+    if (seq.indexOf(doc.frame) < 0) doc.setFrame(seq[0]);
     step();
     return () => clearTimeout(timer);
-  }, [playing, doc, notify]);
+  }, [playing, doc, notify, activeTag]);
 
   /* ───────── 고르기, 클립보드 ───────── */
 
@@ -387,7 +400,7 @@ export function App() {
             onSave={() => void file.savePalette()}
             notify={notify}
           />
-          <PreviewPanel doc={doc} snap={snap} playing={playing} />
+          <PreviewPanel doc={doc} snap={snap} playing={playing} tag={activeTag} />
           {aiOpen && (
             <AIAssistantPanel
               app="pixel"
@@ -422,7 +435,7 @@ export function App() {
       <div className="pixel-stage">
         <PixelCanvas
           doc={doc}
-          options={{ tool, color, size, symmetry, filled, grid, contiguous, pixelPerfect, dither, tile, onion }}
+          options={{ tool, color, secondary, gradient, gradientDither, text, textSize, textBold, size, symmetry, filled, grid, contiguous, pixelPerfect, dither, tile, onion }}
           onPickColor={pickColor}
           onUsedColor={rememberColor}
           onHover={setHover}
@@ -454,6 +467,30 @@ export function App() {
               속 채우기
             </button>
           )}
+          {tool === "gradient" && (
+            <>
+              <select value={gradient} onChange={(e) => setGradient(e.target.value as "linear" | "radial")} title="그라디언트 모양">
+                <option value="linear">▤ 직선</option>
+                <option value="radial">◎ 원형</option>
+              </select>
+              <button aria-pressed={gradientDither} onClick={() => setGradientDither(!gradientDither)} title="켜면 두 색만 써서 바둑판 무늬로 (픽셀 아트답게), 끄면 사이 색을 섞어요">
+                ▚ 디더링 무늬
+              </button>
+            </>
+          )}
+          {tool === "text" && (
+            <>
+              <input className="pixel-text" value={text} onChange={(e) => setText(e.target.value)} placeholder="쓸 글자" title="찍을 글자" />
+              <label title="글자 크기 (칸)">
+                크기
+                <input type="range" min={5} max={32} value={textSize} onChange={(e) => setTextSize(Number(e.target.value))} />
+                <b>{textSize}</b>
+              </label>
+              <button aria-pressed={textBold} onClick={() => setTextBold(!textBold)} title="굵게">
+                <b>B</b>
+              </button>
+            </>
+          )}
           {(tool === "fill" || tool === "wand") && (
             <button aria-pressed={contiguous} onClick={() => setContiguous(!contiguous)} title="끄면 이어지지 않은 같은 색도 모두">
               이어진 곳만
@@ -477,7 +514,7 @@ export function App() {
           </button>
         </div>
       </div>
-      <Timeline doc={doc} snap={snap} playing={playing} setPlaying={setPlaying} onion={onion} setOnion={setOnion} />
+      <Timeline doc={doc} snap={snap} playing={playing} setPlaying={setPlaying} onion={onion} setOnion={setOnion} activeTag={activeTag} setActiveTag={setActiveTag} />
       {dialog === "new" && (
         <NewFileDialog
           onClose={() => setDialog(null)}
@@ -490,7 +527,7 @@ export function App() {
       {dialog === "export" && (
         <ExportDialog
           doc={doc}
-          initial={exportOpts}
+          initial={{ ...exportOpts, tag: activeTag }}
           onClose={() => setDialog(null)}
           onExport={(o) => {
             setExportOpts(o);

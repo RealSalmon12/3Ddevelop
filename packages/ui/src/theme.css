@@ -201,6 +201,14 @@ button { font: inherit; color: inherit; }
 .suite-tool[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
 .suite-tool[aria-pressed="true"] .suite-tool-icon { color: var(--accent-ink); }
 .suite-tool:disabled { opacity: 0.35; cursor: default; background: none; }
+/* 노트북처럼 화면이 낮으면 도구 칸을 줄이고, 더 낮으면 이름을 숨긴다 (마우스를 올리면 이름이 보인다) */
+@media (max-height: 960px) {
+  .suite-tool { padding: 5px 0 4px; gap: 1px; font-size: 10px; }
+  .suite-tool-icon { font-size: 17px; }
+}
+@media (max-height: 760px) {
+  .suite-tool { padding: 7px 0; gap: 0; font-size: 0; }
+}
 .suite-toolbar-divider {
   margin: 6px 4px 2px;
   padding-top: 8px;

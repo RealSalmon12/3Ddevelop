@@ -9,9 +9,11 @@ import {
   getPixel,
   linePoints,
   rectMask,
+  gradientFill,
   rectPoints,
   shiftMask,
   stampRaster,
+  textStamp,
   wandMask,
   type Raster,
 } from "../doc/raster";
@@ -43,6 +45,8 @@ type Drag =
   | { kind: "paint"; color: RGBA; last: Point; trail: Point[]; base: Uint8ClampedArray; done: Set<number> }
   | { kind: "shade"; dir: 1 | -1; last: Point; done: Set<number> }
   | { kind: "shape"; start: Point; base: Uint8ClampedArray; erase: boolean; to: Point }
+  | { kind: "gradient"; start: Point; base: Uint8ClampedArray; fade: boolean; to: Point }
+  | { kind: "text"; base: Uint8ClampedArray }
   | { kind: "select"; start: Point; to: Point; mode: SelectMode }
   | { kind: "move"; start: Point; base: Uint8ClampedArray; float: Raster | null; mask: Uint8Array | null; moved: boolean };
 
@@ -197,6 +201,20 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
       ctx.strokeStyle = "#323a52";
       ctx.lineWidth = 1;
       ctx.strokeRect(Math.round(panX) - 0.5, Math.round(panY) - 0.5, dw + 1, dh + 1);
+
+      // 그라디언트 방향
+      if (drag?.kind === "gradient") {
+        const p = (c: Point): Point => [panX + (c[0] + 0.5) * zoom, panY + (c[1] + 0.5) * zoom];
+        const [ax, ay] = p(drag.start);
+        const [bx, by] = p(drag.to);
+        ctx.strokeStyle = "#ffc83d";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+        for (const [x, y] of [[ax, ay], [bx, by]]) ctx.strokeRect(x - 4, y - 4, 8, 8);
+      }
 
       // 고른 영역: 개미 행렬
       const mask = drag?.kind === "move" && drag.mask ? drag.mask : doc.selection;
@@ -456,6 +474,15 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
         doc.begin();
         drag = { kind: "shape", start: cell, base: doc.cel.data.slice(), erase: e.button === 2, to: cell };
         drawShape(cell, false);
+      } else if (o.tool === "gradient") {
+        doc.begin();
+        drag = { kind: "gradient", start: cell, base: doc.cel.data.slice(), fade: e.button === 2, to: cell };
+        drawGradient(cell, false);
+      } else if (o.tool === "text") {
+        if (!o.text.trim()) return callbacks.current.notify("아래 도구 설정의 글자 칸에 쓸 글자를 먼저 적어 주세요.");
+        doc.begin();
+        drag = { kind: "text", base: doc.cel.data.slice() };
+        drawText(cell);
       } else if (o.tool === "move") {
         doc.begin();
         const mask = doc.selection;
@@ -480,6 +507,33 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
       const [x1, y1] = end;
       if (o.tool === "line") paintPoints(linePoints(x0, y0, x1, y1), color);
       else paintPoints(o.tool === "rect" ? rectPoints(x0, y0, x1, y1, o.filled) : ellipsePoints(x0, y0, x1, y1, o.filled), color, 1);
+      doc.preview();
+    };
+
+    const drawGradient = (to: Point, shift: boolean) => {
+      if (drag?.kind !== "gradient") return;
+      const o = opts.current;
+      const raster = doc.cel;
+      raster.data.set(drag.base);
+      const end = constrain(drag.start, to, shift, "line");
+      drag.to = end;
+      const c0 = hexToRgba(o.color);
+      const c1: RGBA = drag.fade ? [c0[0], c0[1], c0[2], 0] : hexToRgba(o.secondary);
+      gradientFill(raster, doc.selection, drag.start[0], drag.start[1], end[0], end[1], c0, c1, o.gradient, o.gradientDither);
+      doc.preview();
+    };
+
+    let stampCache: { key: string; stamp: ReturnType<typeof textStamp> } | null = null;
+    const drawText = (at: Point) => {
+      if (drag?.kind !== "text") return;
+      const o = opts.current;
+      const key = `${o.text}|${o.textSize}|${o.textBold}`;
+      if (stampCache?.key !== key) stampCache = { key, stamp: textStamp(o.text, o.textSize, o.textBold) };
+      const { width, height, mask } = stampCache.stamp;
+      const raster = doc.cel;
+      raster.data.set(drag.base);
+      const c = hexToRgba(o.color);
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (mask[y * width + x]) put(raster, at[0] + x, at[1] + y, c);
       doc.preview();
     };
 
@@ -515,6 +569,10 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
         doc.preview();
       } else if (drag.kind === "shape") {
         drawShape(cell, e.shiftKey);
+      } else if (drag.kind === "gradient") {
+        drawGradient(cell, e.shiftKey);
+      } else if (drag.kind === "text") {
+        drawText(cell);
       } else if (drag.kind === "select") {
         drag.to = [Math.max(0, Math.min(doc.width - 1, cell[0])), Math.max(0, Math.min(doc.height - 1, cell[1]))];
         redraw();
@@ -569,7 +627,7 @@ export function PixelCanvas({ doc, options, onPickColor, onUsedColor, onHover, o
       }
       doc.commit();
       if (finished.kind === "move" && doc.selection) doc.setSelection(doc.selection);
-      const usedColor = (finished.kind === "paint" && finished.color[3] > 0) || (finished.kind === "shape" && !finished.erase);
+      const usedColor = (finished.kind === "paint" && finished.color[3] > 0) || (finished.kind === "shape" && !finished.erase) || finished.kind === "gradient" || finished.kind === "text";
       if (usedColor) callbacks.current.onUsedColor(opts.current.color);
     };
 

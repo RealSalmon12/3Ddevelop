@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MAX_FRAMES, MAX_LAYERS, type DocSnapshot, type PixelDoc } from "../doc/PixelDoc";
+import { MAX_FRAMES, MAX_LAYERS, TAG_COLORS, type DocSnapshot, type PixelDoc, type Tag, type TagDirection } from "../doc/PixelDoc";
 
 interface Props {
   doc: PixelDoc;
@@ -8,6 +8,103 @@ interface Props {
   setPlaying: (v: boolean) => void;
   onion: boolean;
   setOnion: (v: boolean) => void;
+  activeTag: number | null;
+  setActiveTag: (v: number | null) => void;
+}
+
+const DIRECTIONS: [TagDirection, string, string][] = [
+  ["forward", "→ 앞으로", "1 2 3 1 2 3"],
+  ["reverse", "← 거꾸로", "3 2 1 3 2 1"],
+  ["pingpong", "↔ 왕복", "1 2 3 2 1 2"],
+];
+
+/** 태그 고치기 창. index 가 null 이면 새로 만든다 */
+function TagDialog({ doc, snap, index, onClose, onCreated }: { doc: PixelDoc; snap: DocSnapshot; index: number | null; onClose: () => void; onCreated: (i: number) => void }) {
+  const last = snap.frames.length - 1;
+  const [t, setT] = useState<Tag>(
+    index !== null ? snap.tags[index] : { name: `태그 ${snap.tags.length + 1}`, from: snap.frame, to: last, color: TAG_COLORS[snap.tags.length % TAG_COLORS.length], direction: "forward" },
+  );
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const save = () => {
+    if (index === null) onCreated(doc.addTag(t.from, t.to, t.name.trim() || "태그", t.color, t.direction));
+    else doc.updateTag(index, { ...t, name: t.name.trim() || "태그" });
+    onClose();
+  };
+  const frame = (v: number) => Math.max(1, Math.min(last + 1, Math.round(v || 1))) - 1;
+  return (
+    <div className="dialog-dim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="dialog tag-dialog" role="dialog" aria-label="태그">
+        <h2>{index === null ? "새 태그" : "태그 고치기"}</h2>
+        <p className="dialog-note">‘걷기’, ‘점프’처럼 프레임 몇 장에 이름을 붙여요. 태그를 고르면 재생과 내보내기가 그 프레임만 써요.</p>
+        <label className="form-row">
+          <span>이름</span>
+          <input type="text" value={t.name} autoFocus onChange={(e) => setT({ ...t, name: e.target.value })} onKeyDown={(e) => e.key === "Enter" && save()} />
+        </label>
+        <label className="form-row">
+          <span>프레임</span>
+          <input type="number" min={1} max={last + 1} value={t.from + 1} onChange={(e) => setT({ ...t, from: frame(Number(e.target.value)), to: Math.max(t.to, frame(Number(e.target.value))) })} />
+          ~
+          <input type="number" min={1} max={last + 1} value={t.to + 1} onChange={(e) => setT({ ...t, to: Math.max(t.from, frame(Number(e.target.value))) })} />
+        </label>
+        <div className="form-row">
+          <span>재생</span>
+          <div className="seg-row">
+            {DIRECTIONS.map(([d, label, hint]) => (
+              <button key={d} aria-pressed={t.direction === d} title={hint} onClick={() => setT({ ...t, direction: d })}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="form-row">
+          <span>색</span>
+          <div className="tag-colors">
+            {TAG_COLORS.map((c) => (
+              <button key={c} aria-pressed={t.color === c} style={{ background: c }} onClick={() => setT({ ...t, color: c })} title={c} />
+            ))}
+          </div>
+        </div>
+        <div className="dialog-actions">
+          {index !== null && (
+            <button
+              className="suite-ai-link danger"
+              onClick={() => {
+                doc.removeTag(index);
+                onClose();
+              }}
+            >
+              태그 지우기
+            </button>
+          )}
+          <span className="grow" />
+          <button className="suite-ai-link" onClick={onClose}>
+            취소
+          </button>
+          <button className="suite-button" onClick={save}>
+            {index === null ? "만들기" : "고치기"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 겹치는 태그는 다른 줄에 놓는다 */
+function tagLanes(tags: Tag[]) {
+  const lanes: { tag: Tag; index: number }[][] = [];
+  tags
+    .map((tag, index) => ({ tag, index }))
+    .sort((a, b) => a.tag.from - b.tag.from)
+    .forEach((item) => {
+      const lane = lanes.find((l) => l[l.length - 1].tag.to < item.tag.from);
+      if (lane) lane.push(item);
+      else lanes.push([item]);
+    });
+  return lanes;
 }
 
 /** 작은 셀 그림 (레이어 하나, 프레임 하나) */
@@ -28,7 +125,8 @@ function CelThumb({ doc, layer, frame, version }: { doc: PixelDoc; layer: number
  * 에이스프라이트식 타임라인: 줄은 레이어(위가 앞), 칸은 프레임.
  * 칸을 누르면 그 레이어·프레임에 그리고, 위 번호를 끌면 프레임 순서를 바꾼다.
  */
-export function Timeline({ doc, snap, playing, setPlaying, onion, setOnion }: Props) {
+export function Timeline({ doc, snap, playing, setPlaying, onion, setOnion, activeTag, setActiveTag }: Props) {
+  const [tagDialog, setTagDialog] = useState<{ index: number | null } | null>(null);
   const order = snap.layers.map((layer, index) => ({ layer, index })).reverse();
   const dragFrame = useRef<number | null>(null);
   const [opacity, setOpacity] = useState<number | null>(null);
@@ -79,6 +177,9 @@ export function Timeline({ doc, snap, playing, setPlaying, onion, setOnion }: Pr
           모두
         </button>
         <span className="tl-sep" />
+        <button title="지금 프레임부터 태그 만들기 (‘걷기’, ‘점프’처럼 동작 나누기)" onClick={() => setTagDialog({ index: null })}>
+          🏷 태그
+        </button>
         <button aria-pressed={onion} title="양파 껍질: 앞 프레임(빨강)과 뒤 프레임(파랑)을 흐리게 보여 줘요" onClick={() => setOnion(!onion)}>
           🧅 양파 껍질
         </button>
@@ -113,6 +214,39 @@ export function Timeline({ doc, snap, playing, setPlaying, onion, setOnion }: Pr
       <div className="tl-grid">
         <table>
           <thead>
+            {tagLanes(snap.tags).map((lane, li) => {
+              const cells: React.ReactNode[] = [];
+              let f = 0;
+              for (const { tag, index } of lane) {
+                if (tag.from > f) cells.push(<td key={`gap${f}`} colSpan={tag.from - f} />);
+                const arrow = tag.direction === "reverse" ? "←" : tag.direction === "pingpong" ? "↔" : "→";
+                cells.push(
+                  <td key={index} colSpan={tag.to - tag.from + 1} className="tl-tag-cell">
+                    <button
+                      className={activeTag === index ? "tl-tag active" : "tl-tag"}
+                      style={{ ["--tag" as string]: tag.color }}
+                      title={`${tag.name} · ${tag.from + 1}~${tag.to + 1} 프레임 · 눌러서 이 태그만 재생 · 두 번 눌러서 고치기`}
+                      onClick={() => {
+                        const on = activeTag !== index;
+                        setActiveTag(on ? index : null);
+                        if (on && (snap.frame < tag.from || snap.frame > tag.to)) doc.setFrame(tag.from);
+                      }}
+                      onDoubleClick={() => setTagDialog({ index })}
+                    >
+                      {arrow} {tag.name}
+                    </button>
+                  </td>,
+                );
+                f = tag.to + 1;
+              }
+              if (f < snap.frames.length) cells.push(<td key="tail" colSpan={snap.frames.length - f} />);
+              return (
+                <tr key={`lane${li}`} className="tl-tags">
+                  <th className="tl-tag-head">{li === 0 && <span>🏷 태그</span>}</th>
+                  {cells}
+                </tr>
+              );
+            })}
             <tr>
               <th className="tl-layer-head">
                 <button title="새 레이어 (Shift+N)" disabled={snap.layers.length >= MAX_LAYERS} onClick={() => doc.addLayer()}>
@@ -193,6 +327,7 @@ export function Timeline({ doc, snap, playing, setPlaying, onion, setOnion }: Pr
           </tbody>
         </table>
       </div>
+      {tagDialog && <TagDialog doc={doc} snap={snap} index={tagDialog.index} onClose={() => setTagDialog(null)} onCreated={(i) => setActiveTag(i)} />}
     </div>
   );
 }

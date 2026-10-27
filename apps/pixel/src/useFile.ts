@@ -19,6 +19,14 @@ export interface ExportOptions {
   columns: number;
   /** 시트: 프레임 사이 빈 칸 */
   padding: number;
+  /** 시트, GIF: 이 태그의 프레임만 (null 이면 전체) */
+  tag: number | null;
+}
+
+/** 내보낼 프레임. GIF 는 태그의 재생 순서(거꾸로, 왕복)를 따르고, 시트는 태그 범위를 차례로 */
+export function exportFrames(doc: PixelDoc, o: ExportOptions) {
+  if (o.kind === "gif") return doc.sequence(o.tag);
+  return doc.sequence(o.tag).slice().sort((a, b) => a - b).filter((f, i, a) => a.indexOf(f) === i);
 }
 
 function canvasPng(c: HTMLCanvasElement): Promise<Uint8Array> {
@@ -43,7 +51,7 @@ function frameCanvas(doc: PixelDoc, frame: number, scale: number) {
 }
 
 export function sheetLayout(doc: PixelDoc, o: ExportOptions) {
-  const n = doc.frames.length;
+  const n = exportFrames(doc, o).length;
   const cols = o.columns > 0 ? Math.min(o.columns, n) : n;
   const rows = Math.ceil(n / cols);
   const fw = doc.width * o.scale;
@@ -54,7 +62,7 @@ export function sheetLayout(doc: PixelDoc, o: ExportOptions) {
 export async function renderExport(doc: PixelDoc, o: ExportOptions): Promise<Uint8Array> {
   if (o.kind === "png") return canvasPng(frameCanvas(doc, doc.frame, o.scale));
   if (o.kind === "gif") {
-    const frames = doc.frames.map((f, i) => ({ data: frameCanvas(doc, i, o.scale).getContext("2d")!.getImageData(0, 0, doc.width * o.scale, doc.height * o.scale).data, delay: f.duration }));
+    const frames = exportFrames(doc, o).map((i) => ({ data: frameCanvas(doc, i, o.scale).getContext("2d")!.getImageData(0, 0, doc.width * o.scale, doc.height * o.scale).data, delay: doc.frames[i].duration }));
     return encodeGif(doc.width * o.scale, doc.height * o.scale, frames);
   }
   const L = sheetLayout(doc, o);
@@ -62,7 +70,7 @@ export async function renderExport(doc: PixelDoc, o: ExportOptions): Promise<Uin
   sheet.width = L.width;
   sheet.height = L.height;
   const ctx = sheet.getContext("2d")!;
-  doc.frames.forEach((_, i) => ctx.drawImage(frameCanvas(doc, i, o.scale), (i % L.cols) * (L.fw + o.padding), Math.floor(i / L.cols) * (L.fh + o.padding)));
+  exportFrames(doc, o).forEach((f, i) => ctx.drawImage(frameCanvas(doc, f, o.scale), (i % L.cols) * (L.fw + o.padding), Math.floor(i / L.cols) * (L.fh + o.padding)));
   return canvasPng(sheet);
 }
 
@@ -166,7 +174,8 @@ export function useFile(doc: PixelDoc, dirty: boolean, notify: (message: string)
     async (o: ExportOptions) => {
       if (!window.suite) return false;
       const ext = o.kind === "gif" ? "gif" : "png";
-      const suffix = o.kind === "sheet" ? "-시트" : o.scale > 1 ? `-x${o.scale}` : "";
+      const tagName = o.kind !== "png" && o.tag !== null ? doc.tags[o.tag]?.name : undefined;
+      const suffix = (tagName ? `-${tagName}` : "") + (o.kind === "sheet" ? "-시트" : o.scale > 1 ? `-x${o.scale}` : "");
       const result = await window.suite.files.save({
         defaultName: `${name}${suffix}.${ext}`,
         filters: [ext === "gif" ? { name: "움직이는 GIF", extensions: ["gif"] } : { name: "PNG 그림", extensions: ["png"] }],
@@ -178,7 +187,7 @@ export function useFile(doc: PixelDoc, dirty: boolean, notify: (message: string)
       }
       notify(
         o.kind === "gif"
-          ? `GIF 로 저장했어요 (${doc.frames.length}프레임). 디스코드나 웹에 바로 올릴 수 있어요.`
+          ? `GIF 로 저장했어요 (${exportFrames(doc, o).length}프레임). 디스코드나 웹에 바로 올릴 수 있어요.`
           : o.kind === "sheet"
             ? "스프라이트 시트로 저장했어요. 로블록스에서는 ImageLabel 의 ImageRectOffset 이나 파티클 Flipbook 으로 움직여요."
             : `PNG 로 저장했어요 (${doc.width * o.scale}×${doc.height * o.scale}). 로블록스 스튜디오의 Asset Manager 나 Decal 에 넣으면 돼요.`,
@@ -190,7 +199,7 @@ export function useFile(doc: PixelDoc, dirty: boolean, notify: (message: string)
 
   const exportPng = useCallback(
     (scale: ExportScale) =>
-      exportImage({ kind: "png", scale: scale === "roblox" ? Math.max(1, Math.floor(1024 / Math.max(doc.width, doc.height))) : scale, columns: 0, padding: 0 }),
+      exportImage({ kind: "png", scale: scale === "roblox" ? Math.max(1, Math.floor(1024 / Math.max(doc.width, doc.height))) : scale, columns: 0, padding: 0, tag: null }),
     [doc, exportImage],
   );
 
