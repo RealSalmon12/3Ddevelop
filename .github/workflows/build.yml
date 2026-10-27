@@ -1,0 +1,56 @@
+name: 빌드
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    name: 타입 검사와 빌드
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build:modeler
+
+  windows-installer:
+    name: Windows 설치 파일
+    needs: check
+    # main 에 병합될 때만 설치 파일을 만들어 Releases 에 올린다.
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run dist:modeler
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 3d-modeler-windows
+          path: apps/modeler/release/*.exe
+      - name: Releases 에 올리기
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="modeler-build-${{ github.run_number }}"
+          gh release create "$tag" apps/modeler/release/*.exe \
+            --target "${{ github.sha }}" \
+            --title "3D 모델러 (빌드 ${{ github.run_number }})" \
+            --notes "main 의 최신 코드로 자동으로 만든 Windows 설치 파일이에요. 아래 Assets 에서 .exe 를 받아 실행하세요." \
+            --latest

@@ -9,7 +9,8 @@
   "scripts": {
     "dev:modeler": "npm run dev -w @suite/modeler",
     "build:modeler": "npm run build -w @suite/modeler",
-    "typecheck": "tsc -p packages/ui && tsc -p packages/shell && tsc -p apps/modeler"
+    "typecheck": "tsc -p packages/ui && tsc -p packages/shell && tsc -p apps/modeler",
+    "dist:modeler": "npm run dist -w @suite/modeler"
   },
   "devDependencies": {
     "typescript": "~5.9.3"

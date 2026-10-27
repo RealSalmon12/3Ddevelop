@@ -1,5 +1,5 @@
 import { app, safeStorage } from "electron";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AIRequest, AIResponse, AIStatus } from "./bridge";
 
@@ -7,7 +7,9 @@ import type { AIRequest, AIResponse, AIStatus } from "./bridge";
 const MODEL = "claude-sonnet-5-5";
 const API_URL = "https://api.anthropic.com/v1/messages";
 
-const keyFile = () => path.join(app.getPath("userData"), "..", "nuguna-studio-ai.json");
+// 앱마다 따로가 아니라 제품군 공통 폴더에 둔다.
+const settingsDir = () => path.join(app.getPath("appData"), "NugunaStudio");
+const keyFile = () => path.join(settingsDir(), "ai.json");
 
 let cachedKey: string | null | undefined;
 
@@ -32,6 +34,7 @@ export async function setApiKey(key: string): Promise<AIStatus> {
     : safeStorage.isEncryptionAvailable()
       ? safeStorage.encryptString(trimmed).toString("base64")
       : Buffer.from(trimmed, "utf8").toString("base64");
+  await mkdir(settingsDir(), { recursive: true });
   await writeFile(keyFile(), JSON.stringify({ key: stored }));
   cachedKey = trimmed || null;
   return { configured: !!cachedKey };
