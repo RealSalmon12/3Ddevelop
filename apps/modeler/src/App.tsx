@@ -66,7 +66,7 @@ const TOUR_STEPS: TourStep[] = [
   { title: "숫자로 정확하게", target: ".suite-side .suite-panel:nth-of-type(2)", body: "속성 패널에서 위치, 크기, 색을 숫자로 바꿀 수 있어요. 실수하면 Ctrl+Z 로 되돌리면 돼요." },
   { title: "편집 모드로 모양 바꾸기", target: ".viewport-header", body: "Tab 을 누르면 편집 모드가 돼요. 점, 선, 면을 골라 움직이고, 면을 골라 ‘돌출’하면 새 부분이 튀어나와요." },
   { title: "AI 에게 부탁하기 ✨", target: ".suite-side .suite-panel:last-of-type", body: "만들고 싶은 것을 글로 쓰면 AI 가 만들어 줘요. 처음 한 번 ‘API 키 설정’에서 키를 넣어야 해요." },
-  { title: "저장과 내보내기", target: ".suite-menu:nth-of-type(1)", body: "‘파일’ 메뉴에서 저장(Ctrl+S)하고, 3D 프린팅용 STL 이나 게임용 GLB 로 내보낼 수 있어요. 이제 마음껏 만들어 보세요!" },
+  { title: "저장, 예제, 내보내기", target: ".suite-menu:nth-of-type(1)", body: "‘파일’ 메뉴에서 저장(Ctrl+S)하고, 예제(집, 나무, 블록 캐릭터…)를 열어 뜯어볼 수 있어요. 로블록스용이나 3D 프린팅용으로 내보낼 수도 있어요. 이제 마음껏 만들어 보세요!" },
 ];
 
 const SHORTCUT_HELP = `마우스: 왼쪽 드래그 돌려보기 · 오른쪽 드래그 옮기기 · 휠 확대/축소
