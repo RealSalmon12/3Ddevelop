@@ -217,6 +217,35 @@ export class ModelerScene {
     this.commit();
   }
 
+  /**
+   * 좌우 대칭 복제: 가운데 선(X=0)을 거울 삼아 반대편에 뒤집힌 복사본을 만든다. 팔, 다리, 눈처럼 짝이 있는 것에 쓴다.
+   * 크기를 음수로 만들지 않고 모양 자체를 뒤집어서, 내보낸 파일에서도 면 방향이 그대로다.
+   */
+  mirrorSelected(): boolean {
+    const mesh = this.getMesh(this.selectedId);
+    if (!mesh) return false;
+    this.exitEditSilently();
+    const data = toData(mesh);
+    const poly = data.mesh ?? createShape(data.kind);
+    const flipped: PolyMesh = {
+      vertices: poly.vertices.map(([x, y, z]) => [-x, y, z] as Vec3),
+      faces: poly.faces.map((f) => [...f].reverse()),
+    };
+    const [x, y, z] = data.position;
+    const [rx, ry, rz] = data.rotation;
+    const name = /왼/.test(data.name) ? data.name.replace(/왼/g, "오른") : /오른/.test(data.name) ? data.name.replace(/오른/g, "왼") : `${data.name} 반대쪽`;
+    this.selectedId = this.createMesh({
+      ...data,
+      id: crypto.randomUUID(),
+      name: this.uniqueName(name),
+      position: [-x, y, z],
+      rotation: [rx, -ry, -rz],
+      mesh: flipped,
+    });
+    this.commit();
+    return true;
+  }
+
   remove(id: string) {
     if (!this.meshes.has(id)) return;
     if (this.editingId === id) this.exitEditSilently();

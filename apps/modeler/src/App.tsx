@@ -70,7 +70,7 @@ const TOUR_STEPS: TourStep[] = [
 ];
 
 const SHORTCUT_HELP = `마우스: 왼쪽 드래그 돌려보기 · 오른쪽 드래그 옮기기 · 휠 확대/축소
-Q 선택 · W 이동 · E 회전 · R 크기 · Delete 지우기 · Ctrl+D 복제
+Q 선택 · W 이동 · E 회전 · R 크기 · Delete 지우기 · Ctrl+D 복제 · Ctrl+M 좌우 대칭 복제
 Ctrl+Z 되돌리기 · Ctrl+Y 다시 실행 · Ctrl+S 저장 · Home 처음 시점 · . 선택한 것 가운데로
 Tab 편집 모드 · 1/2/3 점/선/면 · A 모두 고르기 · Shift+E 돌출 · Shift+I 안쪽 면 · M 합치기`;
 
@@ -136,6 +136,7 @@ export function App() {
           o: () => file.open(),
           n: () => file.newFile(),
           d: () => model.duplicateSelected(),
+          m: () => void (model.mirrorSelected() || notify("먼저 대칭으로 복제할 오브젝트를 골라 주세요.")),
           b: () => void (model.bevel() || notify("구멍 없이 닫힌 모양에서만 깎을 수 있어요. 편집 모드에서 써 주세요.")),
         };
         if (actions[key]) {
@@ -191,6 +192,7 @@ export function App() {
         { label: "실행 취소", shortcut: "Ctrl+Z", disabled: !canUndo, onSelect: () => model.undo() },
         { label: "다시 실행", shortcut: "Ctrl+Y", disabled: !canRedo, onSelect: () => model.redo() },
         { label: "복제", shortcut: "Ctrl+D", disabled: !selected, onSelect: () => model.duplicateSelected() },
+        { label: "좌우 대칭 복제 (팔, 다리, 눈 짝 만들기)", shortcut: "Ctrl+M", disabled: !selected, onSelect: () => model.mirrorSelected() },
         { label: "지우기", shortcut: "Delete", disabled: !selected, onSelect: () => model.removeSelected() },
         { label: edit ? "편집 모드 끝내기" : "편집 모드 (점, 선, 면 고치기)", shortcut: "Tab", onSelect: () => explainEdit(model.toggleEdit()) },
       ],
