@@ -2,7 +2,7 @@ import { applySurface, type Surface } from "./materials";
 import * as THREE from "three";
 import { AUTO_SMOOTH_DEGREES, buildGeometry } from "../mesh/geometry";
 import { edgeLoop, edgeRing, loopCut } from "../mesh/loops";
-import { MAX_SUBDIVISION } from "../mesh/subdivision";
+import { catmullClark, MAX_SUBDIVISION } from "../mesh/subdivision";
 import { AXES, applyModifiers, hasModifiers, type ArrayModifier, type Axis, type Modifiers } from "../mesh/modifiers";
 import * as ops from "../mesh/operations";
 import { booleanPoly, type BooleanOp } from "../mesh/boolean";
@@ -683,6 +683,35 @@ export class ModelerScene {
   }
 
   /** Ctrl+0~3: 고른 오브젝트를 매끈하게 하는 단계 */
+  // ---------- 조각 모드 ----------
+
+  /** 조각할 오브젝트의 모양. 조각 붓은 이 점들을 바로 바꾸고 sculptChanged() 를 부른다. */
+  sculptPoly(id: string | null): PolyMesh | null {
+    const mesh = this.getMesh(id);
+    return mesh && mesh.userData.kind !== "effect" ? (mesh.userData.poly as PolyMesh) : null;
+  }
+
+  /** 붓질 중 화면만 새로 그린다 (기록은 붓을 뗄 때 commit) */
+  sculptChanged(id: string) {
+    const mesh = this.getMesh(id);
+    if (mesh) rebuildGeometry(mesh);
+  }
+
+  /** 촘촘하게: 모양을 한 번 매끈하게 나눠 점을 4배로 (조각이 곱게 된다). 너무 많아지면 null */
+  densify(id: string | null): number | null {
+    const mesh = this.getMesh(id);
+    if (!mesh || mesh.userData.kind === "effect") return null;
+    const poly = mesh.userData.poly as PolyMesh;
+    const faces = poly.faces.reduce((n, f) => n + f.length, 0);
+    if (faces > 60000) return null;
+    mesh.userData.poly = catmullClark(poly);
+    // 촘촘한 모양은 매끈하게 이어 보이는 게 자연스럽다
+    if (!mesh.userData.smooth) mesh.userData.smooth = "smooth";
+    rebuildGeometry(mesh);
+    this.commit();
+    return (mesh.userData.poly as PolyMesh).faces.length;
+  }
+
   setSubdivision(level: number): boolean {
     const id = this.editingId ?? this.selectedId;
     const mesh = this.getMesh(id);

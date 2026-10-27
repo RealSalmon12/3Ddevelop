@@ -14,6 +14,8 @@ import { EditOverlay } from "./EditOverlay";
 import { ModalTransform, type ModalKind, type ModalOptions } from "./ModalTransform";
 import { NavGizmo, type ViewName } from "./NavGizmo";
 import { applyShading, type Shading } from "./shading";
+import { SculptTool } from "./SculptTool";
+import type { SculptSettings } from "../mesh/sculpt";
 
 export type ToolId = "select" | "move" | "rotate" | "scale";
 export type { ViewName } from "./NavGizmo";
@@ -76,6 +78,7 @@ export class ViewportRenderer {
   private frame = 0;
   /** 렌더(F12) 때 숨길 격자, 축 선 */
   private helpers: THREE.Object3D[] = [];
+  private sculpt!: SculptTool;
 
   constructor(
     private container: HTMLElement,
@@ -185,6 +188,14 @@ export class ViewportRenderer {
         this.readout.hidden = text === null;
         this.readout.textContent = text ?? "";
       },
+    });
+
+    this.sculpt = new SculptTool({
+      canvas,
+      camera: () => this.camera,
+      model,
+      scene: this.scene,
+      setOrbit: (enabled) => (this.orbit.enabled = enabled),
     });
 
     this.gizmo = new NavGizmo(
@@ -431,10 +442,22 @@ export class ViewportRenderer {
     this.fitOrthographic();
   }
 
+  /** 조각 모드: id 오브젝트를 붓으로 빚는다. null 이면 끈다 */
+  setSculpt(id: string | null, settings: SculptSettings | null) {
+    this.sculpt.set(id, settings);
+    this.syncSelection();
+  }
+
   private syncSelection() {
     const snapshot = this.model.getSnapshot();
     if (snapshot.edit) return this.syncEditMode();
     this.disposeOverlay();
+    if (this.sculpt?.active) {
+      // 조각하는 동안에는 손잡이와 상자를 감춘다
+      this.selectionBox.visible = false;
+      this.transform.detach();
+      return;
+    }
 
     const mesh = this.model.getMesh(snapshot.selectedId);
     if (mesh) {
@@ -861,6 +884,7 @@ export class ViewportRenderer {
 
   dispose() {
     cancelAnimationFrame(this.frame);
+    this.sculpt.dispose();
     this.modal.cancel();
     this.gizmo.dispose();
     this.readout.remove();

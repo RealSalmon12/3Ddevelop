@@ -272,3 +272,10 @@
 .boolean-ops { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 6px 0; }
 .boolean-ops .prop-small-button { padding: 6px 4px; white-space: nowrap; }
 .boolean-keep { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); cursor: pointer; }
+.sculpt-brushes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; margin: 4px 0 8px; }
+.sculpt-brushes .prop-small-button { padding: 6px 4px; text-align: left; white-space: nowrap; }
+.sculpt-brushes .prop-small-button[aria-pressed="true"] { background: var(--accent, #4c8dff); color: #fff; border-color: transparent; }
+.sculpt-panel input[type="range"] { flex: 1; min-width: 0; }
+.sculpt-value { width: 44px; text-align: right; font-size: 12px; color: var(--text-dim); }
+.sculpt-detail { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0 4px; font-size: 12px; color: var(--text-dim); }
+.sculpt-tip { font-size: 12px; }
