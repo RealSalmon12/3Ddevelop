@@ -1,5 +1,14 @@
-import { app, BrowserWindow, ipcMain, shell } from "electron";
-import { IPC, type AIRequest, type AIResponse } from "./bridge";
+import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
+import { readFile, writeFile } from "node:fs/promises";
+import {
+  IPC,
+  type AIRequest,
+  type AIResponse,
+  type OpenFileRequest,
+  type OpenFileResult,
+  type SaveFileRequest,
+  type SaveFileResult,
+} from "./bridge";
 
 export interface SuiteAppOptions {
   /** 앱 고유 ID (예: "modeler"). Windows 작업 표시줄 구분에 쓰인다. */
@@ -22,6 +31,34 @@ async function handleAIRequest(_request: AIRequest): Promise<AIResponse> {
   };
 }
 
+async function handleSaveFile(event: IpcMainInvokeEvent, request: SaveFileRequest): Promise<SaveFileResult> {
+  let filePath = request.path;
+  if (!filePath) {
+    const win = BrowserWindow.fromWebContents(event.sender)!;
+    const result = await dialog.showSaveDialog(win, { defaultPath: request.defaultName, filters: request.filters });
+    if (result.canceled || !result.filePath) return { ok: false, reason: "canceled" };
+    filePath = result.filePath;
+  }
+  try {
+    await writeFile(filePath, typeof request.data === "string" ? request.data : Buffer.from(request.data));
+    return { ok: true, path: filePath };
+  } catch (err) {
+    return { ok: false, reason: "error", message: String(err) };
+  }
+}
+
+async function handleOpenFile(event: IpcMainInvokeEvent, request: OpenFileRequest): Promise<OpenFileResult> {
+  const win = BrowserWindow.fromWebContents(event.sender)!;
+  const result = await dialog.showOpenDialog(win, { filters: request.filters, properties: ["openFile"] });
+  const filePath = result.filePaths[0];
+  if (result.canceled || !filePath) return { ok: false, reason: "canceled" };
+  try {
+    return { ok: true, path: filePath, text: await readFile(filePath, "utf8") };
+  } catch (err) {
+    return { ok: false, reason: "error", message: String(err) };
+  }
+}
+
 function createWindow(options: SuiteAppOptions) {
   const win = new BrowserWindow({
     width: 1440,
@@ -41,6 +78,25 @@ function createWindow(options: SuiteAppOptions) {
   });
 
   win.once("ready-to-show", () => win.show());
+
+  // 저장하지 않은 작업이 있으면 닫기 전에 한 번 더 묻는다.
+  let dirty = false;
+  ipcMain.on(IPC.setDirty, (event, value: boolean) => {
+    if (event.sender === win.webContents) dirty = value;
+  });
+  win.on("close", (event) => {
+    if (!dirty) return;
+    const choice = dialog.showMessageBoxSync(win, {
+      type: "warning",
+      buttons: ["저장하지 않고 닫기", "취소"],
+      defaultId: 1,
+      cancelId: 1,
+      title: options.title,
+      message: "저장하지 않은 작업이 있어요.",
+      detail: "닫으면 마지막으로 저장한 뒤의 변경 내용이 사라져요.",
+    });
+    if (choice === 1) event.preventDefault();
+  });
 
   // 외부 링크는 앱 안이 아니라 기본 브라우저로 연다.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -68,6 +124,8 @@ export function startSuiteApp(options: SuiteAppOptions) {
   }
 
   ipcMain.handle(IPC.aiAsk, (_event, request: AIRequest) => handleAIRequest(request));
+  ipcMain.handle(IPC.fileSave, handleSaveFile);
+  ipcMain.handle(IPC.fileOpen, handleOpenFile);
 
   app.whenReady().then(() => {
     const win = createWindow(options);

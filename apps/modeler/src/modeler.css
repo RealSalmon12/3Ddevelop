@@ -16,7 +16,7 @@
 }
 .outliner button:hover { background: var(--bg-hover); }
 .outliner button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
-.outliner-empty { margin: 4px 0; color: var(--text-dim); line-height: 1.5; }
+
 .viewport-error {
   position: absolute;
   inset: 0;
@@ -27,3 +27,70 @@
   color: var(--text-dim);
   line-height: 1.6;
 }
+
+.panel-empty { margin: 4px 0; color: var(--text-dim); line-height: 1.5; }
+.prop-row {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+.prop-label { color: var(--text-dim); font-size: 13px; }
+.prop-xyz { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.prop-number {
+  display: flex;
+  align-items: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.prop-number:focus-within { border-color: var(--accent); }
+.prop-number span {
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.prop-number.axis-x span { color: #e5646a; }
+.prop-number.axis-y span { color: #7ccf5a; }
+.prop-number.axis-z span { color: #5b8de8; }
+.prop-number input,
+.prop-text {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 4px;
+  background: transparent;
+  color: var(--text);
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+}
+.prop-text {
+  padding: 5px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.prop-number input:focus,
+.prop-text:focus { outline: none; }
+.prop-text:focus { border-color: var(--accent); }
+.prop-color {
+  width: 100%;
+  height: 28px;
+  padding: 0 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.outliner button { display: flex; align-items: center; gap: 8px; }
+.outliner-swatch {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.suite-menubar-action:disabled { opacity: 0.35; cursor: default; background: none; }
+.history-button { font-size: 18px; }

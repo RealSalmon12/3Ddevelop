@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { IPC, type AIRequest, type SuiteBridge } from "./bridge";
+import { IPC, type AIRequest, type OpenFileRequest, type SaveFileRequest, type SuiteBridge } from "./bridge";
 
 /** 각 앱의 preload 에서 한 줄로 호출한다. */
 export function exposeSuiteBridge(appId: string) {
@@ -8,6 +8,13 @@ export function exposeSuiteBridge(appId: string) {
     platform: process.platform,
     ai: {
       ask: (request: AIRequest) => ipcRenderer.invoke(IPC.aiAsk, request),
+    },
+    window: {
+      setDirty: (dirty: boolean) => ipcRenderer.send(IPC.setDirty, dirty),
+    },
+    files: {
+      save: (request: SaveFileRequest) => ipcRenderer.invoke(IPC.fileSave, request),
+      open: (request: OpenFileRequest) => ipcRenderer.invoke(IPC.fileOpen, request),
     },
   };
   contextBridge.exposeInMainWorld("suite", bridge);
