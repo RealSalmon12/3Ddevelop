@@ -257,7 +257,7 @@ export function App() {
       label: "파일",
       items: [
         { label: "새 그림…", shortcut: "Ctrl+N", onSelect: () => setDialog("new") },
-        { label: "열기…", shortcut: "Ctrl+O", onSelect: () => void file.open() },
+        { label: "열기… (.npixel, 에이스프라이트)", shortcut: "Ctrl+O", onSelect: () => void file.open() },
         ...EXAMPLES.map((ex) => ({ label: `예제 열기: ${ex.label}`, onSelect: () => file.openExample(ex) })),
         { label: "저장", shortcut: "Ctrl+S", onSelect: () => void file.save() },
         { label: "다른 이름으로 저장…", shortcut: "Ctrl+Shift+S", onSelect: () => void file.save(true) },
@@ -265,6 +265,7 @@ export function App() {
         { label: "스프라이트 시트 가져오기 (프레임으로)…", onSelect: () => void file.importSheet() },
         { label: "내보내기 (PNG · 시트 · GIF)…", shortcut: "Ctrl+Shift+E", onSelect: () => setDialog("export") },
         { label: "로블록스용 PNG 로 바로 내보내기", onSelect: () => void file.exportPng("roblox") },
+        { label: "에이스프라이트로 내보내기 (.aseprite)…", onSelect: () => void file.exportAseprite() },
         { label: "팔레트 불러오기 (.hex .gpl)…", onSelect: () => void file.loadPalette() },
         { label: "팔레트 저장 (.hex)…", onSelect: () => void file.savePalette() },
       ],
