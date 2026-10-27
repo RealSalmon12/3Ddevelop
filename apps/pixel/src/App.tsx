@@ -24,7 +24,7 @@ import { hexToRgba } from "./doc/color";
 import { EXAMPLES } from "./doc/examples";
 import { MAX_FRAMES, MAX_LAYERS, PixelDoc } from "./doc/PixelDoc";
 import { clearMasked, cutOut, flipRaster, outline, quantize, replaceColor, rotateRaster, shiftMask, stampRaster, type Raster } from "./doc/raster";
-import { AdjustDialog, ExportDialog, SizeDialog } from "./Dialogs";
+import { AdjustDialog, ExportDialog, RotateDialog, SizeDialog } from "./Dialogs";
 import { NewFileDialog } from "./NewFileDialog";
 import { ColorPanel } from "./panels/ColorPanel";
 import { PreviewPanel } from "./panels/PreviewPanel";
@@ -57,7 +57,7 @@ const SYMMETRY: { value: Symmetry; label: string }[] = [
   { value: "both", label: "✣ 네 방향" },
 ];
 
-type DialogKind = "new" | "export" | "size" | "adjust" | null;
+type DialogKind = "new" | "export" | "size" | "adjust" | "rotate" | null;
 
 export function App() {
   const doc = useMemo(() => new PixelDoc(16, 16), []);
@@ -206,6 +206,7 @@ export function App() {
           a: () => doc.selectAll(),
           d: () => doc.setSelection(null),
           i: () => e.shiftKey && invertSelection(),
+          r: () => e.shiftKey && (doc.activeLayer.locked ? notify("잠긴 레이어예요.") : setDialog("rotate")),
           c: () => copy(false),
           x: () => copy(true),
           v: paste,
@@ -307,6 +308,7 @@ export function App() {
       label: "스프라이트",
       items: [
         { label: "크기 바꾸기 (캔버스 / 그림)…", onSelect: () => setDialog("size") },
+        { label: "아무 각도로 돌리기 (RotSprite)…", shortcut: "Ctrl+Shift+R", onSelect: () => (doc.activeLayer.locked ? notify("잠긴 레이어예요.") : setDialog("rotate")) },
         { label: "오른쪽으로 90도 돌리기", onSelect: () => doc.transformAll((r) => rotateRaster(r, true), doc.height, doc.width) },
         { label: "왼쪽으로 90도 돌리기", onSelect: () => doc.transformAll((r) => rotateRaster(r, false), doc.height, doc.width) },
         { label: "그림 전체 좌우 뒤집기", onSelect: () => doc.transformAll((r) => (flipRaster(r, true), r)) },
@@ -539,6 +541,7 @@ export function App() {
       )}
       {dialog === "size" && <SizeDialog doc={doc} notify={notify} onClose={() => (setDialog(null), fitView())} />}
       {dialog === "adjust" && <AdjustDialog doc={doc} onClose={() => setDialog(null)} />}
+      {dialog === "rotate" && <RotateDialog doc={doc} onClose={() => setDialog(null)} />}
       <CommandSearch open={searchOpen} commands={menuCommands(menus)} onClose={() => setSearchOpen(false)} />
       <Toast message={toast} />
       <Tour steps={TOUR_STEPS} open={tour.open} onFinish={tour.finish} />

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PixelDoc } from "./doc/PixelDoc";
 import { adjustHsl, resizeCanvas, scaleNearest } from "./doc/raster";
+import { rotSprite } from "./doc/rotsprite";
 import { exportFrames, sheetLayout, type ExportOptions } from "./useFile";
 
 function useEscape(onClose: () => void) {
@@ -235,6 +236,68 @@ export function AdjustDialog({ doc, onClose }: { doc: PixelDoc; onClose: () => v
         {row("색조", "h", -180, 180)}
         {row("채도", "s", -100, 100)}
         {row("밝기", "l", -100, 100)}
+        <label className="check">
+          <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> 이 레이어의 모든 프레임
+        </label>
+        <div className="dialog-actions">
+          <button className="suite-ai-link" onClick={() => close(false)}>
+            취소
+          </button>
+          <button className="suite-button" onClick={() => close(true)}>
+            적용
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** RotSprite 회전: 아무 각도로나 픽셀이 뭉개지지 않게 돌린다 (고른 부분이 있으면 그것만) */
+export function RotateDialog({ doc, onClose }: { doc: PixelDoc; onClose: () => void }) {
+  const [angle, setAngle] = useState(0);
+  const [all, setAll] = useState(false);
+  const base = useRef<{ layer: number; data: Uint8ClampedArray[] } | null>(null);
+  useEffect(() => {
+    doc.begin();
+    base.current = { layer: doc.active, data: doc.activeLayer.cels.map((c) => c.data.slice()) };
+    return () => {
+      if (base.current) doc.cancel();
+    };
+  }, [doc]);
+  useEffect(() => {
+    const b = base.current;
+    if (!b) return;
+    doc.layers[b.layer].cels.forEach((c, f) => {
+      c.data.set(b.data[f]);
+      if (angle && (all || f === doc.frame)) rotSprite(c, angle, doc.selection);
+    });
+    doc.preview();
+  }, [doc, angle, all]);
+  const close = (keep: boolean) => {
+    if (keep) {
+      base.current = null;
+      doc.commit();
+    }
+    onClose();
+  };
+  useEscape(() => close(false));
+  return (
+    <div className="dialog-dim" onMouseDown={(e) => e.target === e.currentTarget && close(false)}>
+      <div className="dialog small" role="dialog" aria-label="회전 (RotSprite)">
+        <h2>회전 (RotSprite)</h2>
+        <p className="dialog-note">픽셀 아트의 계단이 뭉개지지 않게 아무 각도로나 돌려요. 고른 부분이 있으면 그 부분만 돌려요.</p>
+        <label className="form-row">
+          <span>각도</span>
+          <input type="range" min={-180} max={180} value={angle} onChange={(e) => setAngle(Number(e.target.value))} />
+          <b>{angle}°</b>
+        </label>
+        <div className="rotate-quick">
+          {[-45, -30, -15, 15, 30, 45].map((a) => (
+            <button key={a} className="suite-ai-link" onClick={() => setAngle(a)}>
+              {a > 0 ? `+${a}` : a}°
+            </button>
+          ))}
+        </div>
         <label className="check">
           <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> 이 레이어의 모든 프레임
         </label>

@@ -274,3 +274,9 @@ tr.current .tl-name { color: var(--accent); font-weight: 700; }
 .dialog-actions .grow { flex: 1; }
 .suite-ai-link.danger { color: #ff7a7a; }
 .pixel-text { width: 140px; height: 28px; padding: 0 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-s); font: inherit; font-size: 12px; }
+
+.rotate-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
