@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ModelerScene } from "./ModelerScene";
-import { EXPORT_FORMATS, exportScene, type ExportFormat } from "./exporters";
+import { EXPORT_FORMATS, ROBLOX_TRIANGLE_LIMIT, exportScene, robloxProblems, type ExportFormat } from "./exporters";
 
 const PROJECT_FILTER = { name: "3D 모델러 프로젝트", extensions: ["nmodel"] };
 
@@ -78,5 +78,25 @@ export function useProjectFile(model: ModelerScene, dirty: boolean, notify: (mes
     [model, name, notify],
   );
 
-  return { name, newFile, open, save, exportAs };
+  /** 로블록스용: 오브젝트마다 MeshPart 하나가 되는 GLB. 삼각형이 너무 많으면 먼저 알려 준다. */
+  const exportForRoblox = useCallback(async () => {
+    if (!window.suite) return;
+    const meshes = model.allMeshes().filter((m) => m.userData.kind !== "effect");
+    if (meshes.length === 0) return notify("내보낼 오브젝트가 없어요.");
+    const problems = robloxProblems(meshes);
+    if (problems.length > 0)
+      return notify(
+        `로블록스는 오브젝트 하나에 삼각형 ${ROBLOX_TRIANGLE_LIMIT.toLocaleString()}개쯤까지만 받아요. ${problems.join(", ")}. 모서리 깎기나 세분화를 덜 하거나 여러 조각으로 나눠 주세요.`,
+      );
+    const result = await window.suite.files.save({
+      defaultName: `${name}-로블록스.glb`,
+      filters: [{ name: "GLB 3D 모델", extensions: ["glb"] }],
+      data: await exportScene(model.root, "glb"),
+    });
+    if (result.ok)
+      notify("로블록스용으로 내보냈어요. 로블록스 스튜디오에서 ‘3D 가져오기’로 이 파일을 열면 돼요. 이펙트는 빠졌어요.");
+    else if (result.reason === "error") notify(`내보내지 못했어요. ${result.message ?? ""}`);
+  }, [model, name, notify]);
+
+  return { name, newFile, open, save, exportAs, exportForRoblox };
 }

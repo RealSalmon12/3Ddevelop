@@ -1,3 +1,4 @@
+import { applySurface, type Surface } from "./materials";
 import * as THREE from "three";
 import { buildGeometry } from "../mesh/geometry";
 import * as ops from "../mesh/operations";
@@ -30,6 +31,8 @@ export interface ObjectData {
   color: string;
   /** 스스로 빛나는 세기 (0 이면 빛나지 않음). 빛 번짐 효과와 함께 보인다. */
   glow?: number;
+  /** 겉면 느낌 (없으면 플라스틱) */
+  surface?: Surface;
   /** 이펙트 오브젝트일 때만 */
   effect?: EffectSettings;
   /** 모양 (오브젝트 기준 좌표). 처음 버전 파일에는 없어서 kind 로 다시 만든다. */
@@ -236,6 +239,7 @@ export class ModelerScene {
       scale: Vec3;
       color?: string;
       glow?: number;
+      surface?: Surface;
       effect?: EffectSettings;
     }[];
   }) {
@@ -594,6 +598,7 @@ function toInfo(mesh: THREE.Mesh): ObjectInfo {
     scale: vec(mesh.scale),
     color: `#${(mesh.material as THREE.MeshStandardMaterial).color.getHexString()}`,
     ...(mesh.userData.glow ? { glow: mesh.userData.glow as number } : {}),
+    ...(mesh.userData.surface ? { surface: mesh.userData.surface as Surface } : {}),
     ...(mesh.userData.effect ? { effect: { ...(mesh.userData.effect as EffectSettings) } } : {}),
   };
 }
@@ -610,6 +615,10 @@ function applyData(mesh: THREE.Mesh, data: ObjectInfo) {
   mesh.userData.glow = glow || undefined;
   material.emissive.set(data.color);
   material.emissiveIntensity = glow * 0.6;
+  if (data.kind !== "effect") {
+    mesh.userData.surface = data.surface && data.surface !== "plastic" ? data.surface : undefined;
+    applySurface(material, data.surface);
+  }
 
   if (data.effect) {
     let particles = mesh.userData.particles as ParticleSystem | undefined;
