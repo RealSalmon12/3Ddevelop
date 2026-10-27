@@ -2,7 +2,7 @@ import { applySurface, type Surface } from "./materials";
 import * as THREE from "three";
 import { buildGeometry } from "../mesh/geometry";
 import * as ops from "../mesh/operations";
-import { add, centroid, cloneMesh, sub, type PolyMesh, type Vec3 } from "../mesh/PolyMesh";
+import { add, centroid, cloneMesh, faceNormal, sub, type PolyMesh, type Vec3 } from "../mesh/PolyMesh";
 import {
   convertSelection,
   emptySelection,
@@ -35,6 +35,8 @@ export interface ObjectData {
   surface?: Surface;
   /** 이펙트 오브젝트일 때만 */
   effect?: EffectSettings;
+  /** 화면에서 숨겼는지 (H). 숨겨도 저장, 내보내기에는 들어간다. */
+  hidden?: boolean;
   /** 모양 (오브젝트 기준 좌표). 처음 버전 파일에는 없어서 kind 로 다시 만든다. */
   mesh?: PolyMesh;
 }
@@ -130,6 +132,13 @@ export class ModelerScene {
     this.refresh();
   }
 
+  /** 바로 앞 기록을 지금 상태로 바꾼다. 돌출하고 바로 끌어 옮기는 것처럼 두 단계를 한 번의 실행 취소로 묶을 때 쓴다. */
+  amendCommit() {
+    this.current = this.serialize();
+    this.future = [];
+    this.refresh();
+  }
+
   /** 지금 상태를 실행 취소 기록에 남긴다. 변경이 끝날 때마다 부른다. */
   commit() {
     const next = this.serialize();
@@ -202,18 +211,50 @@ export class ModelerScene {
     return id;
   }
 
-  duplicateSelected() {
+  /** 복제. inPlace 면 같은 자리에 겹쳐 만든다 (Shift+D 로 만든 뒤 바로 끌어 옮길 때). */
+  duplicateSelected(inPlace = false): boolean {
     const mesh = this.getMesh(this.selectedId);
-    if (!mesh) return;
+    if (!mesh) return false;
     this.exitEditSilently();
     const data = toData(mesh);
     const id = this.createMesh({
       ...data,
       id: crypto.randomUUID(),
       name: this.uniqueName(data.name.replace(/ \d+$/, "")),
-      position: [data.position[0] + 1, data.position[1], data.position[2] + 1],
+      position: inPlace ? data.position : [data.position[0] + 1, data.position[1], data.position[2] + 1],
+      hidden: false,
     });
     this.selectedId = id;
+    this.commit();
+    return true;
+  }
+
+  // ---------- 숨기기 ----------
+
+  setHidden(id: string, hidden: boolean) {
+    const mesh = this.meshes.get(id);
+    if (!mesh || mesh.visible === !hidden) return;
+    if (hidden && this.editingId === id) this.exitEditSilently();
+    mesh.visible = !hidden;
+    if (hidden && this.selectedId === id) this.selectedId = null;
+    this.commit();
+  }
+
+  /** H: 고른 것을 숨긴다. Shift+H: 고른 것만 남기고 숨긴다. */
+  hideSelected(others = false): boolean {
+    if (!this.selectedId) return false;
+    this.exitEditSilently();
+    for (const [id, mesh] of this.meshes) {
+      if (others ? id !== this.selectedId : id === this.selectedId) mesh.visible = false;
+    }
+    if (!others) this.selectedId = null;
+    this.commit();
+    return true;
+  }
+
+  /** Alt+H: 숨긴 것을 모두 다시 보인다. */
+  unhideAll() {
+    this.meshes.forEach((m) => (m.visible = true));
     this.commit();
   }
 
@@ -476,11 +517,27 @@ export class ModelerScene {
     return true;
   }
 
-  /** 돌출: 고른 면을 바깥으로 밀어내고 벽을 세운다. 크기와 상관없이 같은 거리로 보이도록 오브젝트 크기로 나눈다. */
-  extrude() {
+  /**
+   * 돌출: 고른 면을 바깥으로 밀어내고 벽을 세운다. 크기와 상관없이 같은 거리로 보이도록 오브젝트 크기로 나눈다.
+   * distance 를 0 으로 주면 벽만 세우고, 뒤이어 마우스로 끌어서 높이를 정한다 (E 키).
+   */
+  extrude(distance = 0.3) {
     const mesh = this.editingMesh();
-    const distance = mesh ? 0.3 / Math.max(Math.abs(mesh.scale.x), Math.abs(mesh.scale.y), Math.abs(mesh.scale.z), 1e-3) : 0.3;
-    return this.applyFaceOperation((poly, faces) => ops.extrudeFaces(poly, faces, distance));
+    const local = mesh ? distance / Math.max(Math.abs(mesh.scale.x), Math.abs(mesh.scale.y), Math.abs(mesh.scale.z), 1e-3) : distance;
+    return this.applyFaceOperation((poly, faces) => ops.extrudeFaces(poly, faces, local));
+  }
+
+  /** 고른 면들이 바라보는 방향 (월드). 고른 면이 없으면 null. */
+  selectedFaceNormal(): THREE.Vector3 | null {
+    const mesh = this.editingMesh();
+    const poly = this.editingPoly();
+    if (!mesh || !poly) return null;
+    const faces = selectedFaces(poly, this.editSelection);
+    if (faces.length === 0) return null;
+    const n = faces.map((f) => faceNormal(poly, poly.faces[f])).reduce(add, [0, 0, 0] as Vec3);
+    const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
+    const world = new THREE.Vector3(...n).applyMatrix3(normalMatrix).normalize();
+    return world.lengthSq() > 0 ? world : null;
   }
 
   inset() {
@@ -597,6 +654,9 @@ export class ModelerScene {
   private disposeMesh(id: string) {
     const mesh = this.meshes.get(id)!;
     (mesh.userData.particles as ParticleSystem | undefined)?.dispose();
+    const wire = mesh.userData.wire as THREE.LineSegments | undefined;
+    wire?.geometry.dispose();
+    (wire?.material as THREE.Material | undefined)?.dispose();
     this.root.remove(mesh);
     mesh.geometry.dispose();
     (mesh.material as THREE.Material).dispose();
@@ -647,11 +707,13 @@ function toInfo(mesh: THREE.Mesh): ObjectInfo {
     ...(mesh.userData.glow ? { glow: mesh.userData.glow as number } : {}),
     ...(mesh.userData.surface ? { surface: mesh.userData.surface as Surface } : {}),
     ...(mesh.userData.effect ? { effect: { ...(mesh.userData.effect as EffectSettings) } } : {}),
+    ...(mesh.visible ? {} : { hidden: true }),
   };
 }
 
 function applyData(mesh: THREE.Mesh, data: ObjectInfo) {
   mesh.name = data.name;
+  mesh.visible = !data.hidden;
   mesh.position.fromArray(data.position);
   mesh.rotation.set(...data.rotation);
   mesh.scale.fromArray(data.scale);

@@ -77,6 +77,14 @@ function createWindow(options: SuiteAppOptions) {
   });
 
   win.once("ready-to-show", () => win.show());
+  // Electron 기본 메뉴를 없앤다. 남아 있으면 Alt 를 누를 때 메뉴가 튀어나오고, Ctrl+R 이 화면을 새로 고쳐서
+  // 작업 중인 것이 날아간다. 앱마다 자기 메뉴를 화면 안에 그린다.
+  win.removeMenu();
+  if (process.env.VITE_DEV_SERVER_URL) {
+    win.webContents.on("before-input-event", (_event, input) => {
+      if (input.type === "keyDown" && input.key === "F12") win.webContents.toggleDevTools();
+    });
+  }
 
   // 저장하지 않은 작업이 있으면 닫기 전에 한 번 더 묻는다.
   let dirty = false;

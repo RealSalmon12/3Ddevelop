@@ -11,8 +11,21 @@ import { emptySelection, selectedVertices, type EditSelection } from "../mesh/se
 import type { ModelerScene } from "../scene/ModelerScene";
 import type { ParticleSystem } from "../effects/particles";
 import { EditOverlay } from "./EditOverlay";
+import { ModalTransform, type ModalKind, type ModalOptions } from "./ModalTransform";
+import { NavGizmo, type ViewName } from "./NavGizmo";
+import { applyShading, type Shading } from "./shading";
 
 export type ToolId = "select" | "move" | "rotate" | "scale";
+export type { ViewName } from "./NavGizmo";
+
+const VIEW_DIRECTIONS: Record<ViewName, [number, number, number]> = {
+  front: [0, 0, 1],
+  back: [0, 0, -1],
+  right: [1, 0, 0],
+  left: [-1, 0, 0],
+  top: [0, 1, 0.0001],
+  bottom: [0, -1, 0.0001],
+};
 
 const HOME_POSITION = new THREE.Vector3(5, 4, 6);
 
@@ -20,7 +33,19 @@ const HOME_POSITION = new THREE.Vector3(5, 4, 6);
 export class ViewportRenderer {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(45, 1, 0.05, 1000);
+  private perspective = new THREE.PerspectiveCamera(45, 1, 0.05, 1000);
+  /** 평면 보기 (숫자패드 5). 멀리 있어도 크기가 같아 보여서 치수를 맞추기 좋다. */
+  private orthographic = new THREE.OrthographicCamera(-1, 1, 1, -1, -500, 1000);
+  private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera = this.perspective;
+  private renderPass: RenderPass;
+  private modal: ModalTransform;
+  private gizmo: NavGizmo;
+  private readout: HTMLDivElement;
+  private tool: ToolId = "move";
+  private snap = false;
+  private shading: Shading = "solid";
+  /** 마지막으로 본 마우스 위치 (캔버스 기준). G/R/S 를 누를 때 여기서 시작한다. */
+  private pointer = { x: 0, y: 0, inside: false };
   private orbit: OrbitControls;
   private transform: TransformControls;
   private selectionBox = new THREE.BoxHelper(new THREE.Object3D(), 0xffc83d);
@@ -61,7 +86,8 @@ export class ViewportRenderer {
 
     // 빛 번짐: 아주 밝은 부분(빛나는 오브젝트, 불꽃)만 주변으로 번진다.
     this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.renderPass = new RenderPass(this.scene, this.camera);
+    this.composer.addPass(this.renderPass);
     this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.35, 1.4);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
@@ -113,6 +139,46 @@ export class ViewportRenderer {
     const canvas = this.renderer.domElement;
     canvas.addEventListener("pointerdown", this.onPointerDown);
     canvas.addEventListener("pointerup", this.onPointerUp);
+    canvas.addEventListener("pointermove", this.onPointerMove);
+    canvas.addEventListener("pointerleave", () => (this.pointer.inside = false));
+
+    this.readout = document.createElement("div");
+    this.readout.className = "modal-readout";
+    this.readout.hidden = true;
+    container.appendChild(this.readout);
+
+    this.modal = new ModalTransform({
+      camera: () => this.camera,
+      canvas,
+      scene: this.scene,
+      pointer: () => (this.pointer.inside ? this.pointer : { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 }),
+      snapEnabled: () => this.snap,
+      changed: (target, poly) => {
+        if (target.type === "vertices" && poly) {
+          this.model.setEditingPoly(poly);
+          this.overlay?.update(poly, this.model.getEditSelection());
+        } else {
+          this.selectionBox.update();
+        }
+        model.touch();
+      },
+      finished: (confirmed) => {
+        this.orbit.enabled = true;
+        this.setTool(this.tool);
+        if (confirmed) this.modalConfirm?.();
+        this.modalConfirm = null;
+      },
+      readout: (text) => {
+        this.readout.hidden = text === null;
+        this.readout.textContent = text ?? "";
+      },
+    });
+
+    this.gizmo = new NavGizmo(
+      container,
+      (view) => this.setView(view),
+      (dx, dy) => this.orbitBy(dx, dy),
+    );
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
@@ -128,6 +194,8 @@ export class ViewportRenderer {
       const dt = (now - last) / 1000;
       last = now;
       this.orbit.update();
+      this.gizmo.update(this.camera);
+      applyShading(this.model.allMeshes(), this.shading);
       this.updateParticles(dt);
       this.composer.render(dt);
     };
@@ -182,6 +250,8 @@ export class ViewportRenderer {
   }
 
   setTool(tool: ToolId) {
+    this.tool = tool;
+    if (this.modal?.active) return;
     if (tool === "select") {
       this.transform.enabled = false;
       this.transform.getHelper().visible = false;
@@ -194,6 +264,7 @@ export class ViewportRenderer {
 
   /** 격자에 맞춰 움직이기: 이동 0.25, 회전 15도, 크기 0.25 단위 */
   setSnap(enabled: boolean) {
+    this.snap = enabled;
     this.transform.setTranslationSnap(enabled ? 0.25 : null);
     this.transform.setRotationSnap(enabled ? THREE.MathUtils.degToRad(15) : null);
     this.transform.setScaleSnap(enabled ? 0.25 : null);
@@ -203,24 +274,133 @@ export class ViewportRenderer {
     this.bloom.enabled = enabled;
   }
 
+  setShading(shading: Shading) {
+    this.shading = shading;
+  }
+
   /** 처음 시점으로 돌아가기. 길을 잃은 초보자를 위한 버튼. */
   resetView() {
     this.camera.position.copy(HOME_POSITION);
     this.orbit.target.set(0, 0.5, 0);
+    this.fitOrthographic();
   }
 
-  /** 정면, 오른쪽, 위에서 똑바로 보기. 지금 보던 거리는 그대로 둔다. */
-  setView(view: "front" | "right" | "top") {
-    const dir = { front: [0, 0, 1], right: [1, 0, 0], top: [0, 1, 0.0001] }[view];
+  /** 앞, 뒤, 옆, 위, 아래에서 똑바로 보기. 지금 보던 거리는 그대로 둔다. */
+  setView(view: ViewName) {
     const distance = this.camera.position.distanceTo(this.orbit.target);
-    this.camera.position.copy(this.orbit.target).addScaledVector(new THREE.Vector3(...dir).normalize(), distance);
+    this.camera.position.copy(this.orbit.target).addScaledVector(new THREE.Vector3(...VIEW_DIRECTIONS[view]).normalize(), distance);
     this.camera.lookAt(this.orbit.target);
+  }
+
+  /** 숫자패드 4/6/8/2: 15도씩 돌려 보기 */
+  orbitStep(horizontal: number, vertical: number) {
+    const step = THREE.MathUtils.degToRad(15);
+    const offset = this.camera.position.clone().sub(this.orbit.target);
+    const spherical = new THREE.Spherical().setFromVector3(offset);
+    spherical.theta += horizontal * step;
+    spherical.phi = THREE.MathUtils.clamp(spherical.phi - vertical * step, 0.001, Math.PI - 0.001);
+    this.camera.position.copy(this.orbit.target).add(new THREE.Vector3().setFromSpherical(spherical));
+    this.camera.lookAt(this.orbit.target);
+  }
+
+  private orbitBy(dx: number, dy: number) {
+    const offset = this.camera.position.clone().sub(this.orbit.target);
+    const spherical = new THREE.Spherical().setFromVector3(offset);
+    spherical.theta -= dx * 0.012;
+    spherical.phi = THREE.MathUtils.clamp(spherical.phi - dy * 0.012, 0.001, Math.PI - 0.001);
+    this.camera.position.copy(this.orbit.target).add(new THREE.Vector3().setFromSpherical(spherical));
+    this.camera.lookAt(this.orbit.target);
+  }
+
+  isOrthographic() {
+    return this.camera === this.orthographic;
+  }
+
+  /** 숫자패드 5: 원근 보기와 평면 보기를 바꾼다. 화면에 보이는 크기는 그대로 둔다. */
+  toggleOrthographic(): boolean {
+    const from = this.camera;
+    if (from === this.perspective) {
+      this.orthographic.position.copy(from.position);
+      this.orthographic.quaternion.copy(from.quaternion);
+      this.useCamera(this.orthographic);
+      this.fitOrthographic();
+    } else {
+      // 평면 보기에서 휠로 확대한 만큼 원근 카메라를 가까이 둔다.
+      const dir = from.position.clone().sub(this.orbit.target);
+      dir.setLength(dir.length() / this.orthographic.zoom);
+      this.perspective.position.copy(this.orbit.target).add(dir);
+      this.perspective.quaternion.copy(from.quaternion);
+      this.useCamera(this.perspective);
+    }
+    return this.isOrthographic();
+  }
+
+  private useCamera(camera: THREE.PerspectiveCamera | THREE.OrthographicCamera) {
+    this.camera = camera;
+    this.orbit.object = camera;
+    this.transform.camera = camera;
+    this.renderPass.camera = camera;
+    this.resize();
+    this.orbit.update();
+  }
+
+  /** 평면 보기의 화면 크기를 지금 거리에서 원근 보기와 같아 보이게 맞춘다. */
+  private fitOrthographic() {
+    if (this.camera !== this.orthographic) return;
+    const distance = this.camera.position.distanceTo(this.orbit.target);
+    const half = distance * Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2));
+    const aspect = this.perspective.aspect;
+    Object.assign(this.orthographic, { left: -half * aspect, right: half * aspect, top: half, bottom: -half, zoom: 1 });
+    this.orthographic.updateProjectionMatrix();
+  }
+
+  // ---------- 모달 변형 (G, R, S) ----------
+
+  private modalConfirm: (() => void) | null = null;
+
+  /**
+   * G/R/S: 손잡이 없이 마우스로 바로 옮기고, 돌리고, 늘린다. 편집 모드면 고른 점들을, 아니면 고른 오브젝트를 움직인다.
+   * 움직일 것이 없으면 false.
+   */
+  startModal(kind: ModalKind, options: ModalOptions = {}): boolean {
+    const edit = this.model.getSnapshot().edit;
+    let target: Parameters<ModalTransform["begin"]>[1];
+    if (edit) {
+      const mesh = this.model.editingMesh();
+      const poly = this.model.editingPoly();
+      const vertices = poly ? selectedVertices(poly, this.model.getEditSelection()) : new Set<number>();
+      if (!mesh || !poly || vertices.size === 0) return false;
+      target = { type: "vertices", mesh, poly, vertices };
+    } else {
+      const mesh = this.model.getMesh(this.model.getSnapshot().selectedId);
+      if (!mesh || !mesh.visible) return false;
+      target = { type: "object", object: mesh };
+    }
+    this.orbit.enabled = false;
+    this.transform.enabled = false;
+    this.transform.getHelper().visible = false;
+    this.modalConfirm = options.onConfirm ?? (() => this.model.commit());
+    this.modal.begin(kind, target, { ...options, onConfirm: undefined });
+    return true;
+  }
+
+  modalActive() {
+    return this.modal.active;
+  }
+
+  /** 모달 변형 중에 누른 키. 처리했으면 true. */
+  modalKey(e: KeyboardEvent) {
+    return this.modal.key(e);
+  }
+
+  modalKeyUp(e: KeyboardEvent) {
+    this.modal.keyUp(e);
   }
 
   /** 선택한 오브젝트가 화면 가운데 오도록 맞추기. 아무것도 안 골랐으면 장면 전체를 맞춘다. */
   frameSelected() {
     const mesh = this.model.getMesh(this.model.getSnapshot().selectedId);
-    const targets = mesh ? [mesh] : this.model.allMeshes().filter((m) => m.userData.kind !== "effect");
+    const targets = mesh ? [mesh] : this.model.allMeshes().filter((m) => m.userData.kind !== "effect" && m.visible);
     if (targets.length === 0) return this.resetView();
     const box = new THREE.Box3();
     targets.forEach((m) => box.expandByObject(m));
@@ -228,6 +408,7 @@ export class ViewportRenderer {
     const dir = this.camera.position.clone().sub(this.orbit.target).normalize();
     this.orbit.target.copy(sphere.center);
     this.camera.position.copy(sphere.center).addScaledVector(dir, Math.max(sphere.radius * (mesh ? 3.5 : 2.4), 1.5));
+    this.fitOrthographic();
   }
 
   private syncSelection() {
@@ -370,9 +551,13 @@ export class ViewportRenderer {
     };
     // 그 점이 다른 면에 가려져 있는지
     const hidden = (world: THREE.Vector3) => {
-      const dir = world.clone().sub(this.camera.position);
+      // 평면 보기에서는 모든 시선이 나란하므로 점 바로 앞에서 쏜다.
+      const origin = this.isOrthographic()
+        ? world.clone().addScaledVector(this.camera.getWorldDirection(new THREE.Vector3()), -100)
+        : this.camera.position;
+      const dir = world.clone().sub(origin);
       const dist = dir.length();
-      this.raycaster.set(this.camera.position, dir.normalize());
+      this.raycaster.set(origin, dir.normalize());
       const hit = this.raycaster.intersectObject(mesh, false)[0];
       return !!hit && hit.distance < dist - Math.max(1e-3 * dist, 1e-4);
     };
@@ -429,6 +614,11 @@ export class ViewportRenderer {
     this.model.setEditSelection(next);
   }
 
+  private onPointerMove = (e: PointerEvent) => {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer = { x: e.clientX - rect.left, y: e.clientY - rect.top, inside: true };
+  };
+
   private onPointerDown = (e: PointerEvent) => {
     if (e.button === 0) this.pointerDown = { x: e.clientX, y: e.clientY };
   };
@@ -447,7 +637,7 @@ export class ViewportRenderer {
       -((e.clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(ndc, this.camera);
-    const hit = this.raycaster.intersectObjects(this.model.allMeshes(), false)[0];
+    const hit = this.raycaster.intersectObjects(this.model.allMeshes().filter((m) => m.visible), false)[0];
     this.model.select(hit ? hit.object.userData.id : null);
   };
 
@@ -456,7 +646,7 @@ export class ViewportRenderer {
     for (const mesh of this.model.allMeshes()) {
       const particles = mesh.userData.particles as ParticleSystem | undefined;
       if (!particles) continue;
-      particles.setViewport(height, this.camera.fov);
+      particles.setViewport(height, this.perspective.fov);
       particles.update(dt);
     }
   }
@@ -467,12 +657,21 @@ export class ViewportRenderer {
     this.renderer.setSize(w, h);
     this.composer.setPixelRatio(window.devicePixelRatio);
     this.composer.setSize(w, h);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    this.perspective.aspect = w / h;
+    this.perspective.updateProjectionMatrix();
+    if (this.camera === this.orthographic) {
+      const half = this.orthographic.top;
+      this.orthographic.left = -half * this.perspective.aspect;
+      this.orthographic.right = half * this.perspective.aspect;
+      this.orthographic.updateProjectionMatrix();
+    }
   }
 
   dispose() {
     cancelAnimationFrame(this.frame);
+    this.modal.cancel();
+    this.gizmo.dispose();
+    this.readout.remove();
     this.disposeOverlay();
     this.unsubscribe();
     this.resizeObserver.disconnect();

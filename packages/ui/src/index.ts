@@ -1,6 +1,7 @@
 export { COMMUNITY_URL, SUITE_NAME } from "./brand";
 export { AppFrame } from "./components/AppFrame";
 export { MenuBar, type Menu, type MenuItem } from "./components/MenuBar";
+export { CommandSearch, menuCommands, type Command } from "./components/CommandSearch";
 export { Toolbar, type Tool, type ToolAction } from "./components/Toolbar";
 export { Panel } from "./components/Panel";
 export { StatusBar } from "./components/StatusBar";
