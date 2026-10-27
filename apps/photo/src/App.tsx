@@ -53,6 +53,8 @@ import {
   rotateDoc,
 } from "./ops";
 import { applyFilter, clearPixels, fillAll, FILTERS, opaqueBounds, RETOUCH, type FilterKind } from "./paint";
+import { contentAwareFill } from "./inpaint";
+import { readPsd, writePsd } from "./psd";
 import { LayersPanel, PropertiesPanel, setHistogramDoc, Histogram } from "./Panels";
 import { createCanvas, ctx2d, dataUrlToBlob, pixelsAsync, putBlank, putCanvas } from "./pixels";
 import { flatten, layerMatrix, layerToDocCanvas } from "./render";
@@ -98,6 +100,7 @@ const TOUR_STEPS: TourStep[] = [
 const PROJECT = { name: "바코 진주 파일", extensions: ["nphoto"] };
 const IMAGE_EXT = ["png", "jpg", "jpeg", "webp", "gif", "bmp"];
 const IMAGES = { name: "그림", extensions: IMAGE_EXT };
+const PSD = { name: "포토샵 PSD", extensions: ["psd"] };
 const MAX_SIDE = 4096;
 const baseName = (p: string) => p.split(/[\\/]/).pop()!.replace(/\.[^.]+$/, "");
 
@@ -215,7 +218,7 @@ export function App() {
 
   const open = async () => {
     if (!window.suite || !confirmDiscard()) return;
-    const r = await window.suite.files.open({ filters: [{ name: "바코 진주 파일, 그림", extensions: ["nphoto", ...IMAGE_EXT] }, PROJECT, IMAGES], binary: true });
+    const r = await window.suite.files.open({ filters: [{ name: "바코 진주 파일, 그림", extensions: ["nphoto", "psd", ...IMAGE_EXT] }, PROJECT, PSD, IMAGES], binary: true });
     if (!r.ok) return r.reason === "error" && notify(`파일을 열지 못했어요. ${r.message ?? ""}`);
     const ext = r.path.split(".").pop()!.toLowerCase();
     try {
@@ -223,6 +226,11 @@ export function App() {
         const text = new TextDecoder().decode(Uint8Array.from(atob(r.text), (ch) => ch.charCodeAt(0)));
         history.reset(parse(text));
         setFilePath(r.path);
+      } else if (ext === "psd") {
+        const psd = readPsd(Uint8Array.from(atob(r.text), (ch) => ch.charCodeAt(0)));
+        history.reset(psd);
+        setFilePath(null);
+        notify(`PSD 를 열었어요 (레이어 ${psd.layers.length}개). 저장하면 바코 진주 파일(.nphoto)로 저장돼요.`);
       } else {
         const c = await decodePhoto(await base64Blob(r.text, ext));
         const d = blankDoc(c.width, c.height, null);
@@ -252,6 +260,21 @@ export function App() {
       setFilePath(r.path);
       notify("저장했어요.");
     } else if (r.reason === "error") notify(`저장하지 못했어요. ${r.message ?? ""}`);
+    else notify("");
+  };
+
+  const exportPsd = async () => {
+    if (!window.suite) return;
+    notify("PSD 를 만드는 중…");
+    const { data, skippedAdjust } = await writePsd(history.get());
+    const r = await window.suite.files.save({ defaultName: `${name}.psd`, filters: [PSD], data });
+    if (r.ok)
+      notify(
+        skippedAdjust
+          ? `PSD 로 저장했어요. 보정 레이어 ${skippedAdjust}개는 합친 그림에만 들어갔어요.`
+          : `PSD 로 저장했어요 (${Math.round(data.length / 1024)}KB). 포토샵에서 레이어 그대로 열 수 있어요.`,
+      );
+    else if (r.reason === "error") notify(`내보내지 못했어요. ${r.message ?? ""}`);
     else notify("");
   };
 
@@ -291,6 +314,18 @@ export function App() {
   };
 
   const fill = (color: string) => editPixels((b, s) => fillAll(b, target()?.kind === "mask" ? (color === bg ? "#000" : "#fff") : color, s));
+
+  /** 내용 인식 채우기: 선택한 곳을 주변 그림으로 자연스럽게 메운다 */
+  const contentFill = async () => {
+    if (!selection) return notify("지울 물건을 올가미(L)나 선택 윤곽(M)으로 넉넉하게 둘러싼 뒤 다시 눌러 주세요.");
+    const t = target();
+    if (!t) return;
+    if (t.kind !== "pixels") return notify("사진(픽셀) 레이어를 골라 주세요.");
+    notify("주변을 살펴서 채우는 중…");
+    await new Promise((r) => setTimeout(r, 30));
+    await editPixels((b, s) => (s ? contentAwareFill(b, s) : b));
+    notify("채웠어요. 어색한 곳은 스팟 복구 브러시(J)로 다듬어 보세요.");
+  };
 
   const clearSelectionPixels = () => {
     if (!selection) {
@@ -509,6 +544,10 @@ export function App() {
         e.preventDefault();
         return setSearchOpen(true);
       }
+      if (e.key === "F5" && e.shiftKey) {
+        e.preventDefault();
+        return void contentFill();
+      }
       if (e.ctrlKey || e.metaKey) {
         const shift = e.shiftKey;
         const alt = e.altKey;
@@ -620,12 +659,13 @@ export function App() {
       label: "파일",
       items: [
         { label: "새로 만들기…", shortcut: "Ctrl+N", onSelect: () => setDialog({ kind: "new" }) },
-        { label: "열기… (.nphoto, 그림)", shortcut: "Ctrl+O", onSelect: () => void open() },
+        { label: "열기… (.nphoto, PSD, 그림)", shortcut: "Ctrl+O", onSelect: () => void open() },
         { label: "그림 가져오기 (새 레이어로)…", shortcut: "Ctrl+Shift+P", onSelect: () => void placeImage() },
         { label: "저장", shortcut: "Ctrl+S", onSelect: () => void save() },
         { label: "다른 이름으로 저장…", shortcut: "Ctrl+Shift+S", onSelect: () => void save(true) },
         { label: "내보내기 (PNG, JPG, WebP)…", shortcut: "Ctrl+Shift+Alt+W", onSelect: () => setDialog({ kind: "export" }) },
         { label: "PNG 로 빠르게 내보내기", onSelect: () => void exportImage("png", 100, 1) },
+        { label: "포토샵 PSD 로 내보내기 (레이어 유지)…", onSelect: () => void exportPsd() },
       ],
     },
     {
@@ -640,6 +680,7 @@ export function App() {
         { label: "전경색으로 칠하기", shortcut: "Alt+Delete", onSelect: () => fill(fg) },
         { label: "배경색으로 칠하기", shortcut: "Ctrl+Delete", onSelect: () => fill(bg) },
         { label: "지우기 (선택 영역)", shortcut: "Delete", onSelect: clearSelectionPixels },
+        { label: "내용 인식 채우기", shortcut: "Shift+F5", disabled: !selection, onSelect: () => void contentFill() },
         { label: "자유 변형", shortcut: "Ctrl+T", onSelect: () => setTool("move") },
       ],
     },
