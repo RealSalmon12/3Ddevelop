@@ -1,29 +1,68 @@
 import * as THREE from "three";
 import { createGeometry, SHAPES, type ShapeKind } from "./shapes";
 
-export interface SceneItem {
+type Vec3 = [number, number, number];
+
+/** 오브젝트 하나를 파일에 저장하는 모양 */
+export interface ObjectData {
   id: string;
   name: string;
   kind: ShapeKind;
+  position: Vec3;
+  /** 라디안 */
+  rotation: Vec3;
+  scale: Vec3;
+  /** "#rrggbb" */
+  color: string;
+}
+
+/** 프로젝트 파일(.nmodel) 내용 */
+export interface SceneDocument {
+  app: "modeler";
+  version: 1;
+  objects: ObjectData[];
 }
 
 export interface SceneSnapshot {
-  items: SceneItem[];
+  items: ObjectData[];
   selectedId: string | null;
+  canUndo: boolean;
+  canRedo: boolean;
+  /** 마지막 저장 뒤 바뀐 것이 있는지 */
+  dirty: boolean;
 }
 
-const DEFAULT_COLOR = 0xb8bcc4;
+const DEFAULT_COLOR = "#b8bcc4";
+const HISTORY_LIMIT = 100;
+
+const round = (n: number) => Math.round(n * 1e5) / 1e5;
+const vec = (v: THREE.Vector3 | THREE.Euler): Vec3 => [round(v.x), round(v.y), round(v.z)];
 
 /**
  * 3D 장면의 상태를 들고 있는 곳. 화면(React)은 snapshot 을 구독해서 목록과 패널을 그리고,
  * 뷰포트(three.js)는 같은 객체의 root 를 그린다.
+ *
+ * 실행 취소는 바뀔 때마다 장면 전체를 JSON 으로 기록해 두는 방식이다. 장면이 작아서 충분히 빠르고,
+ * 저장 파일과 같은 형식이라 따로 맞출 것이 없다.
  */
 export class ModelerScene {
   readonly root = new THREE.Group();
   private meshes = new Map<string, THREE.Mesh>();
-  private counters = new Map<ShapeKind, number>();
   private listeners = new Set<() => void>();
-  private snapshot: SceneSnapshot = { items: [], selectedId: null };
+  private selectedId: string | null = null;
+
+  private past: string[] = [];
+  private future: string[] = [];
+  private current: string;
+  private saved: string;
+  private snapshot!: SceneSnapshot;
+
+  constructor() {
+    this.current = this.saved = this.serialize();
+    this.refresh();
+  }
+
+  // ---------- 구독 ----------
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -32,40 +71,190 @@ export class ModelerScene {
 
   getSnapshot = () => this.snapshot;
 
-  private emit() {
-    const items = [...this.meshes.values()].map((m) => ({
-      id: m.uuid,
-      name: m.name,
-      kind: m.userData.kind as ShapeKind,
-    }));
-    this.snapshot = { items, selectedId: this.snapshot.selectedId };
+  private refresh() {
+    this.snapshot = {
+      items: [...this.meshes.values()].map(toData),
+      selectedId: this.selectedId,
+      canUndo: this.past.length > 0,
+      canRedo: this.future.length > 0,
+      dirty: this.current !== this.saved,
+    };
     this.listeners.forEach((l) => l());
   }
 
-  add(kind: ShapeKind, position?: THREE.Vector3Like): string {
-    const n = (this.counters.get(kind) ?? 0) + 1;
-    this.counters.set(kind, n);
-    const label = SHAPES.find((s) => s.kind === kind)!.label;
+  /** 기록 없이 화면만 새로 고친다. 기즈모로 끄는 중처럼 아직 끝나지 않은 변경에 쓴다. */
+  touch() {
+    this.refresh();
+  }
 
+  /** 지금 상태를 실행 취소 기록에 남긴다. 변경이 끝날 때마다 부른다. */
+  commit() {
+    const next = this.serialize();
+    if (next !== this.current) {
+      this.past.push(this.current);
+      if (this.past.length > HISTORY_LIMIT) this.past.shift();
+      this.current = next;
+      this.future = [];
+    }
+    this.refresh();
+  }
+
+  undo() {
+    const prev = this.past.pop();
+    if (prev === undefined) return;
+    this.future.push(this.current);
+    this.current = prev;
+    this.restore(prev);
+  }
+
+  redo() {
+    const next = this.future.pop();
+    if (next === undefined) return;
+    this.past.push(this.current);
+    this.current = next;
+    this.restore(next);
+  }
+
+  // ---------- 오브젝트 ----------
+
+  add(kind: ShapeKind): string {
+    const label = SHAPES.find((s) => s.kind === kind)!.label;
+    const geometry = createGeometry(kind);
+    geometry.computeBoundingBox();
+    const spot = this.findFreeSpot();
+    const id = this.createMesh({
+      id: crypto.randomUUID(),
+      name: this.uniqueName(label),
+      kind,
+      // 바닥 위에 올려놓는다.
+      position: [spot.x, round(-geometry.boundingBox!.min.y), spot.z],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+      color: DEFAULT_COLOR,
+    });
+    geometry.dispose();
+    this.selectedId = id;
+    this.commit();
+    return id;
+  }
+
+  duplicateSelected() {
+    const mesh = this.getMesh(this.selectedId);
+    if (!mesh) return;
+    const data = toData(mesh);
+    const id = this.createMesh({
+      ...data,
+      id: crypto.randomUUID(),
+      name: this.uniqueName(data.name.replace(/ \d+$/, "")),
+      position: [data.position[0] + 1, data.position[1], data.position[2] + 1],
+    });
+    this.selectedId = id;
+    this.commit();
+  }
+
+  remove(id: string) {
+    if (!this.meshes.has(id)) return;
+    this.disposeMesh(id);
+    if (this.selectedId === id) this.selectedId = null;
+    this.commit();
+  }
+
+  removeSelected() {
+    if (this.selectedId) this.remove(this.selectedId);
+  }
+
+  /** 속성 패널에서 값을 바꿀 때 */
+  update(id: string, patch: Partial<Omit<ObjectData, "id" | "kind">>) {
+    const mesh = this.meshes.get(id);
+    if (!mesh) return;
+    applyData(mesh, { ...toData(mesh), ...patch });
+    this.commit();
+  }
+
+  select(id: string | null) {
+    if (this.selectedId === id) return;
+    this.selectedId = id;
+    this.refresh();
+  }
+
+  getMesh(id: string | null) {
+    return id ? this.meshes.get(id) ?? null : null;
+  }
+
+  allMeshes() {
+    return [...this.meshes.values()];
+  }
+
+  // ---------- 파일 ----------
+
+  serialize(): string {
+    const doc: SceneDocument = { app: "modeler", version: 1, objects: [...this.meshes.values()].map(toData) };
+    return JSON.stringify(doc);
+  }
+
+  /** 파일 내용을 불러와 새 장면으로 바꾼다. 실행 취소 기록은 비운다. */
+  load(text: string) {
+    const doc = JSON.parse(text) as SceneDocument;
+    if (doc.app !== "modeler" || !Array.isArray(doc.objects)) {
+      throw new Error("3D 모델러 프로젝트 파일이 아니에요.");
+    }
+    this.selectedId = null;
+    this.restore(JSON.stringify(doc), false);
+    this.current = this.saved = this.serialize();
+    this.past = [];
+    this.future = [];
+    this.refresh();
+  }
+
+  /** 빈 장면으로 새로 시작 */
+  reset() {
+    this.load(JSON.stringify({ app: "modeler", version: 1, objects: [] } satisfies SceneDocument));
+  }
+
+  markSaved() {
+    this.saved = this.current;
+    this.refresh();
+  }
+
+  // ---------- 내부 ----------
+
+  private restore(text: string, notify = true) {
+    for (const id of [...this.meshes.keys()]) this.disposeMesh(id);
+    const doc = JSON.parse(text) as SceneDocument;
+    doc.objects.forEach((data) => this.createMesh(data));
+    if (this.selectedId && !this.meshes.has(this.selectedId)) this.selectedId = null;
+    if (notify) this.refresh();
+  }
+
+  private createMesh(data: ObjectData): string {
     const mesh = new THREE.Mesh(
-      createGeometry(kind),
-      new THREE.MeshStandardMaterial({ color: DEFAULT_COLOR, roughness: 0.55, metalness: 0.05 }),
+      createGeometry(data.kind),
+      new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.05 }),
     );
-    mesh.name = n === 1 ? label : `${label} ${n}`;
-    mesh.userData.kind = kind;
+    mesh.userData.id = data.id;
+    mesh.userData.kind = data.kind;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    // 바닥 위에 올려놓는다.
-    mesh.geometry.computeBoundingBox();
-    const minY = mesh.geometry.boundingBox!.min.y;
-    const spot = position ?? this.findFreeSpot();
-    mesh.position.set(spot.x, position?.y ?? -minY, spot.z);
-
+    applyData(mesh, data);
     this.root.add(mesh);
-    this.meshes.set(mesh.uuid, mesh);
-    this.select(mesh.uuid);
-    this.emit();
-    return mesh.uuid;
+    this.meshes.set(data.id, mesh);
+    return data.id;
+  }
+
+  private disposeMesh(id: string) {
+    const mesh = this.meshes.get(id)!;
+    this.root.remove(mesh);
+    mesh.geometry.dispose();
+    (mesh.material as THREE.Material).dispose();
+    this.meshes.delete(id);
+  }
+
+  private uniqueName(base: string) {
+    const names = new Set([...this.meshes.values()].map((m) => m.name));
+    if (!names.has(base)) return base;
+    let n = 2;
+    while (names.has(`${base} ${n}`)) n++;
+    return `${base} ${n}`;
   }
 
   /** 새 도형이 기존 도형 안에 숨지 않도록 가운데에서 가까운 빈자리를 찾는다. */
@@ -82,33 +271,24 @@ export class ModelerScene {
     }
     return { x: 0, z: 0 };
   }
+}
 
-  remove(id: string) {
-    const mesh = this.meshes.get(id);
-    if (!mesh) return;
-    this.root.remove(mesh);
-    mesh.geometry.dispose();
-    (mesh.material as THREE.Material).dispose();
-    this.meshes.delete(id);
-    if (this.snapshot.selectedId === id) this.snapshot = { ...this.snapshot, selectedId: null };
-    this.emit();
-  }
+function toData(mesh: THREE.Mesh): ObjectData {
+  return {
+    id: mesh.userData.id,
+    name: mesh.name,
+    kind: mesh.userData.kind,
+    position: vec(mesh.position),
+    rotation: vec(mesh.rotation),
+    scale: vec(mesh.scale),
+    color: `#${(mesh.material as THREE.MeshStandardMaterial).color.getHexString()}`,
+  };
+}
 
-  removeSelected() {
-    if (this.snapshot.selectedId) this.remove(this.snapshot.selectedId);
-  }
-
-  select(id: string | null) {
-    if (this.snapshot.selectedId === id) return;
-    this.snapshot = { ...this.snapshot, selectedId: id };
-    this.listeners.forEach((l) => l());
-  }
-
-  getMesh(id: string | null) {
-    return id ? this.meshes.get(id) ?? null : null;
-  }
-
-  allMeshes() {
-    return [...this.meshes.values()];
-  }
+function applyData(mesh: THREE.Mesh, data: ObjectData) {
+  mesh.name = data.name;
+  mesh.position.fromArray(data.position);
+  mesh.rotation.set(...data.rotation);
+  mesh.scale.fromArray(data.scale);
+  (mesh.material as THREE.MeshStandardMaterial).color.set(data.color);
 }

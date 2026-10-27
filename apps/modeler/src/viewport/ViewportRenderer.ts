@@ -50,8 +50,13 @@ export class ViewportRenderer {
     this.transform = new TransformControls(this.camera, this.renderer.domElement);
     this.transform.addEventListener("dragging-changed", (e) => {
       this.orbit.enabled = !e.value;
+      // 다 끌었으면 실행 취소 기록에 남긴다.
+      if (!e.value) model.commit();
     });
-    this.transform.addEventListener("objectChange", () => this.selectionBox.update());
+    this.transform.addEventListener("objectChange", () => {
+      this.selectionBox.update();
+      model.touch();
+    });
     this.scene.add(this.transform.getHelper());
 
     this.selectionBox.visible = false;
@@ -171,7 +176,7 @@ export class ViewportRenderer {
     );
     this.raycaster.setFromCamera(ndc, this.camera);
     const hit = this.raycaster.intersectObjects(this.model.allMeshes(), false)[0];
-    this.model.select(hit ? hit.object.uuid : null);
+    this.model.select(hit ? hit.object.userData.id : null);
   };
 
   private resize() {
