@@ -1,3 +1,4 @@
+import { SURFACES, type Surface } from "../scene/materials";
 import { useEffect, useRef, useState } from "react";
 import type * as THREE from "three";
 import { Panel } from "@suite/ui";
@@ -131,6 +132,21 @@ export function PropertiesPanel({ model, item, edit }: PropertiesPanelProps) {
           />
         </>
       ) : (
+        <>
+        <div className="prop-row">
+          <span className="prop-label">겉면</span>
+          <select
+            className="prop-select"
+            value={item.surface ?? "plastic"}
+            onChange={(e) => update({ surface: e.target.value as Surface })}
+          >
+            {SURFACES.map((s) => (
+              <option key={s.type} value={s.type}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </div>
         <RangeField
           label="빛나기"
           value={item.glow ?? 0}
@@ -142,6 +158,7 @@ export function PropertiesPanel({ model, item, edit }: PropertiesPanelProps) {
           }}
           onCommit={(glow) => update({ glow })}
         />
+        </>
       )}
     </Panel>
   );

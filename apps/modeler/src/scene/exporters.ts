@@ -1,4 +1,4 @@
-import type * as THREE from "three";
+import * as THREE from "three";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { OBJExporter } from "three/addons/exporters/OBJExporter.js";
 import { STLExporter } from "three/addons/exporters/STLExporter.js";
@@ -29,4 +29,19 @@ export async function exportScene(source: THREE.Object3D, format: ExportFormat):
       return new Uint8Array(result as ArrayBuffer);
     }
   }
+}
+
+/** 로블록스가 메시 하나에 받아 주는 삼각형 수 (대략적인 한도) */
+export const ROBLOX_TRIANGLE_LIMIT = 20000;
+
+export function triangleCount(mesh: THREE.Mesh): number {
+  const g = mesh.geometry;
+  return Math.round((g.index ? g.index.count : g.attributes.position.count) / 3);
+}
+
+/** 로블록스에 넣기 전에 걸리는 점들. 문제가 없으면 빈 배열. */
+export function robloxProblems(meshes: THREE.Mesh[]): string[] {
+  return meshes
+    .filter((m) => m.userData.kind !== "effect" && triangleCount(m) > ROBLOX_TRIANGLE_LIMIT)
+    .map((m) => `‘${m.name}’ 삼각형 ${triangleCount(m).toLocaleString()}개`);
 }

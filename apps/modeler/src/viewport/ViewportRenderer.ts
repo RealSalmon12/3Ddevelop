@@ -5,6 +5,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { cloneMesh, edgeKey, meshEdges, type PolyMesh, type Vec3 } from "../mesh/PolyMesh";
 import { emptySelection, selectedVertices, type EditSelection } from "../mesh/selection";
 import type { ModelerScene } from "../scene/ModelerScene";
@@ -161,7 +162,13 @@ export class ViewportRenderer {
     ground.receiveShadow = true;
     this.scene.add(ground);
 
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+    // 금속과 유리가 비칠 수 있도록 방 안 같은 주변 빛을 깐다.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.45;
+    pmrem.dispose();
+
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.9));
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(5, 10, 7);
     sun.castShadow = true;
@@ -183,6 +190,13 @@ export class ViewportRenderer {
       this.transform.getHelper().visible = true;
       this.transform.setMode(tool === "move" ? "translate" : tool);
     }
+  }
+
+  /** 격자에 맞춰 움직이기: 이동 0.25, 회전 15도, 크기 0.25 단위 */
+  setSnap(enabled: boolean) {
+    this.transform.setTranslationSnap(enabled ? 0.25 : null);
+    this.transform.setRotationSnap(enabled ? THREE.MathUtils.degToRad(15) : null);
+    this.transform.setScaleSnap(enabled ? 0.25 : null);
   }
 
   setBloom(enabled: boolean) {

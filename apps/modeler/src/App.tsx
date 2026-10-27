@@ -20,7 +20,7 @@ import {
 import type { SelectMode } from "./mesh/selection";
 import { PropertiesPanel } from "./panels/PropertiesPanel";
 import { AI_SYSTEM, AI_TOOL, applyPlan, sceneContext, type ScenePlan } from "./scene/aiModeling";
-import { EXPORT_FORMATS } from "./scene/exporters";
+import { EXPORT_FORMATS, triangleCount } from "./scene/exporters";
 import { ModelerScene } from "./scene/ModelerScene";
 import { SHAPES } from "./scene/shapes";
 import { EFFECTS } from "./effects/particles";
@@ -89,6 +89,7 @@ export function App() {
   const [tool, setTool] = useState<ToolId>("move");
   const [aiOpen, setAiOpen] = useState(true);
   const [bloom, setBloom] = useState(true);
+  const [snap, setSnap] = useState(false);
   const [toast, notify] = useToast();
   const file = useProjectFile(model, dirty, notify);
   const tour = useTour("modeler");
@@ -96,6 +97,7 @@ export function App() {
 
   useEffect(() => viewport?.setTool(tool), [viewport, tool]);
   useEffect(() => viewport?.setBloom(bloom), [viewport, bloom]);
+  useEffect(() => viewport?.setSnap(snap), [viewport, snap]);
 
   const needFaces = "먼저 면을 골라 주세요. 위에서 ‘면’을 누르고 면을 클릭하면 돼요.";
   const editActions: ToolAction[] = [
@@ -146,6 +148,7 @@ export function App() {
       if (e.shiftKey) return;
       if (SHORTCUTS[key]) setTool(SHORTCUTS[key]);
       else if (key === "delete" || key === "x") model.removeSelected();
+      else if (key === "g") setSnap((on) => !on);
       else if (key === "home") viewport?.resetView();
       else if (key === ".") viewport?.frameSelected();
     };
@@ -162,6 +165,7 @@ export function App() {
         { label: "저장", shortcut: "Ctrl+S", onSelect: () => file.save() },
         { label: "다른 이름으로 저장…", shortcut: "Ctrl+Shift+S", onSelect: () => file.save(true) },
         ...EXPORT_FORMATS.map((f) => ({ label: `내보내기: ${f.label}`, onSelect: () => file.exportAs(f.format) })),
+        { label: "로블록스용으로 내보내기", onSelect: () => file.exportForRoblox() },
       ],
     },
     {
@@ -186,6 +190,7 @@ export function App() {
       label: "보기",
       items: [
         { label: bloom ? "빛 번짐 끄기" : "빛 번짐 켜기", onSelect: () => setBloom(!bloom) },
+        { label: snap ? "칸에 맞춰 움직이기 끄기" : "칸에 맞춰 움직이기 켜기", shortcut: "G", onSelect: () => setSnap(!snap) },
         { label: "처음 시점으로", shortcut: "Home", onSelect: () => viewport?.resetView() },
         { label: "선택한 것 가운데로", shortcut: ".", onSelect: () => viewport?.frameSelected() },
       ],
@@ -267,6 +272,10 @@ export function App() {
           <span>
             {dirty ? "● " : ""}
             {file.name}
+          </span>
+          {snap && <span>칸 맞춤 켜짐 (G)</span>}
+          <span title="화면에 그려지는 삼각형 수예요. 게임에 넣을 때는 적을수록 가벼워요.">
+            삼각형 {model.allMeshes().filter((m) => m.userData.kind !== "effect").reduce((n, m) => n + triangleCount(m), 0).toLocaleString()}개
           </span>
           <span>오브젝트 {items.length}개</span>
         </StatusBar>
