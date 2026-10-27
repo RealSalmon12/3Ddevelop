@@ -32,7 +32,7 @@ export const AI_TOOL: NonNullable<AIRequest["tool"]> = {
 /** 지금 레이어를 글자 그림으로. 색이 너무 많거나 비어 있으면 null. */
 function layerToRows(doc: PixelDoc): PixelRows | null {
   const { width, height } = doc;
-  const data = doc.activeLayer.raster.data;
+  const data = doc.cel.data;
   const palette: string[] = [];
   const rows: string[] = [];
   for (let y = 0; y < height; y++) {
