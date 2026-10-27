@@ -346,6 +346,132 @@ export function reduceNoise(s: Sound, r: Range, profile: Float32Array, amount = 
   });
 }
 
+/* ───────── 주파수 상자 편집 (오디션의 스펙트럼 선택) ───────── */
+
+export interface Band {
+  /** Hz */
+  low: number;
+  high: number;
+}
+
+export type SpectralMode = { kind: "gain"; db: number } | { kind: "heal" };
+
+const SP_SIZE = 2048;
+
+/**
+ * 시간 범위 r 과 주파수 band 로 만든 상자 안만 바꾼다.
+ * gain: 상자 안 소리를 db 만큼 (-60 이면 지우기), heal: 상자 앞뒤 소리를 이어 붙여 메운다 (기침, 휴대폰 벨, 삐 소리).
+ * 상자 가장자리는 시간과 주파수 모두 부드럽게 줄여서 이음매가 들리지 않게 한다.
+ */
+export function spectralEdit(s: Sound, r: Range, band: Band, mode: SpectralMode): Sound {
+  const N = SP_SIZE;
+  const hop = N / 4;
+  const total = s.channels[0].length;
+  const a = Math.max(0, r.start - 2 * N);
+  const b = Math.min(total, r.end + 2 * N);
+  if (b <= a || r.end <= r.start) return s;
+  const win = hann(N);
+  const bins = N / 2 + 1;
+  const binHz = s.sampleRate / N;
+  // 주파수 무게: 상자 밖으로 0.15 옥타브에 걸쳐 0 이 된다
+  const lo = Math.max(1, Math.min(band.low, band.high));
+  const hi = Math.max(band.low, band.high);
+  const fw = new Float32Array(bins);
+  for (let k = 0; k < bins; k++) {
+    const f = Math.max(1, k * binHz);
+    const out = f < lo ? Math.log2(lo / f) : f > hi ? Math.log2(f / hi) : 0;
+    const t = Math.min(1, out / 0.15);
+    fw[k] = 0.5 + 0.5 * Math.cos(Math.PI * t);
+  }
+  // 시간 무게: 프레임 가운데가 범위 밖으로 N/4 안에 있으면 조금만
+  const taper = N / 4;
+  const tw = (c: number) => {
+    const out = c < r.start ? r.start - c : c > r.end ? c - r.end : 0;
+    const t = Math.min(1, out / taper);
+    return 0.5 + 0.5 * Math.cos(Math.PI * t);
+  };
+  const keepGain = mode.kind === "gain" ? dbToGain(mode.db) : 1;
+  const back = Math.max(0, r.start - N);
+  const front = Math.min(total, r.end + N);
+
+  const channels = s.channels.map((ch) => {
+    const seg = ch.subarray(a, b);
+    const n = seg.length;
+    const padded = new Float32Array(n + N * 2);
+    padded.set(seg, N);
+    const frames: { at: number; c: number; re: Float32Array; im: Float32Array }[] = [];
+    for (let at = 0; at + N <= padded.length; at += hop) {
+      const re = new Float32Array(N);
+      const im = new Float32Array(N);
+      for (let i = 0; i < N; i++) re[i] = padded[at + i] * win[i];
+      fft(re, im);
+      frames.push({ at, c: a + at - N + N / 2, re, im });
+    }
+    // 메우기용: 상자 바로 앞과 바로 뒤의 평균 크기
+    const ref = (from: number, to: number) => {
+      const m = new Float32Array(bins);
+      let count = 0;
+      for (const f of frames) {
+        if (f.c < from || f.c > to) continue;
+        for (let k = 0; k < bins; k++) m[k] += Math.hypot(f.re[k], f.im[k]);
+        count++;
+      }
+      if (!count) return null;
+      for (let k = 0; k < bins; k++) m[k] /= count;
+      return m;
+    };
+    let before = mode.kind === "heal" ? ref(r.start - N * 1.5, r.start - taper) : null;
+    let after = mode.kind === "heal" ? ref(r.end + taper, r.end + N * 1.5) : null;
+    if (mode.kind === "heal" && !before && !after) return ch;
+    before ??= after;
+    after ??= before;
+
+    const out = new Float32Array(n + N * 2);
+    const norm = new Float32Array(n + N * 2);
+    for (const f of frames) {
+      const w = tw(f.c);
+      if (w > 0) {
+        const u = Math.max(0, Math.min(1, (f.c - r.start) / Math.max(1, r.end - r.start)));
+        for (let k = 0; k < bins; k++) {
+          const wk = w * fw[k];
+          if (wk <= 0) continue;
+          const mag = Math.hypot(f.re[k], f.im[k]);
+          let g: number;
+          if (mode.kind === "gain") g = 1 - (1 - keepGain) * wk;
+          else {
+            // 원래 결(위상)은 두고 크기만 앞뒤에서 이어 온 값으로
+            const target = before![k] * (1 - u) + after![k] * u;
+            g = mag > 1e-12 ? (mag * (1 - wk) + target * wk) / mag : 1;
+          }
+          f.re[k] *= g;
+          f.im[k] *= g;
+          if (k > 0 && k < N / 2) {
+            f.re[N - k] = f.re[k];
+            f.im[N - k] = -f.im[k];
+          }
+        }
+        fft(f.re, f.im, true);
+      } else {
+        // 바꾸지 않는 프레임은 원래 소리를 그대로 (계산 오차도 없이)
+        for (let i = 0; i < N; i++) {
+          f.re[i] = padded[f.at + i] * win[i];
+        }
+      }
+      for (let i = 0; i < N; i++) {
+        out[f.at + i] += f.re[i] * win[i];
+        norm[f.at + i] += win[i] * win[i];
+      }
+    }
+    const res = ch.slice();
+    for (let i = back; i < front; i++) {
+      const j = i - a + N;
+      if (norm[j] > 1e-6) res[i] = Math.max(-1, Math.min(1, out[j] / norm[j]));
+    }
+    return res;
+  });
+  return { ...s, channels };
+}
+
 /* ───────── 음높이, 빠르기 ───────── */
 
 /** 길이를 factor 배로 (음높이는 그대로): 겹쳐 더하기 (WSOLA 간단판) */

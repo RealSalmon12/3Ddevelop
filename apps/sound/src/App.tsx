@@ -279,6 +279,8 @@ export function App() {
   const [view, setViewRaw] = useState<View>({ start: 0, end: 1 });
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [spectral, setSpectral] = useState(false);
+  const [boxSelect, setBoxSelect] = useState(false);
+  const [band, setBand] = useState<D.Band | null>(null);
   const [loop, setLoop] = useState(false);
   const [rack, setRack] = useState<Fx[]>([]);
   const [live, setLive] = useState(false);
@@ -651,7 +653,27 @@ export function App() {
     setCursor(selection.start);
   };
   const paste = (mix: boolean) => (clipboard ? insertClip(clipboard, mix) : notify("먼저 복사하거나 잘라 주세요."));
-  const del = () => (selection ? (edit(A.remove, false), setCursor(selection.start)) : notify("먼저 지울 부분을 끌어서 골라 주세요."));
+  /** 스펙트럼에서 상자로 고른 주파수 (스펙트럼을 보고 있을 때만) */
+  const activeBand = spectral && selection ? band : null;
+  useEffect(() => {
+    if (!selection) setBand(null);
+  }, [selection]);
+  const spectralEdit = (mode: D.SpectralMode, done: string) => {
+    if (!selection || !activeBand) return notify("스펙트럼 보기(Shift+D)에서 상자 고르기(E)를 켜고, 없앨 소리를 상자로 둘러 주세요.");
+    const b = activeBand;
+    edit((s, r) => D.spectralEdit(s, r, b, mode));
+    notify(done);
+  };
+  const del = () =>
+    activeBand
+      ? spectralEdit({ kind: "gain", db: -60 }, "상자 안의 소리만 지웠어요. 다른 소리는 그대로예요.")
+      : selection
+        ? (edit(A.remove, false), setCursor(selection.start))
+        : notify("먼저 지울 부분을 끌어서 골라 주세요.");
+  const toggleBox = () => {
+    if (!spectral) setSpectral(true);
+    setBoxSelect((v) => !v);
+  };
   const crop = () => (selection ? (edit(A.keep, false), setCursor(0)) : notify("먼저 남길 부분을 끌어서 골라 주세요."));
 
   /* ───────── 보기, 마커 ───────── */
@@ -911,6 +933,8 @@ export function App() {
       else if (key === "l") setLoop((v) => !v);
       else if (key === "m") addMarker();
       else if (key === "d" && e.shiftKey) setSpectral((v) => !v);
+      else if (key === "e" && !e.shiftKey && !e.altKey) toggleBox();
+      else if (key === "h" && e.shiftKey && activeBand) spectralEdit({ kind: "heal" }, "상자 안을 앞뒤 소리로 메웠어요.");
       else if (key === "=" || key === "+") zoom(0.5);
       else if (key === "-") zoom(2);
       else if (key === "\\") zoomFit();
@@ -965,6 +989,17 @@ export function App() {
         { label: "모두 고르기", shortcut: "Ctrl+A", onSelect: () => setSelection({ start: 0, end: n }) },
         { label: "마커 사이 고르기", onSelect: selectBetweenMarkers },
         { label: "고르기 풀기", shortcut: "Esc", onSelect: () => setSelection(null) },
+      ],
+    },
+    {
+      label: "스펙트럼",
+      items: [
+        { label: spectral ? "파형 보기" : "스펙트럼 보기", shortcut: "Shift+D", onSelect: () => setSpectral(!spectral) },
+        { label: boxSelect ? "상자 고르기 끄기" : "주파수 상자로 고르기", shortcut: "E", onSelect: toggleBox },
+        { label: "상자 안 지우기", shortcut: "Delete", disabled: !activeBand, onSelect: del },
+        { label: "상자 안 메우기 (앞뒤 소리로)", shortcut: "Shift+H", disabled: !activeBand, onSelect: () => spectralEdit({ kind: "heal" }, "상자 안을 앞뒤 소리로 메웠어요.") },
+        { label: "상자 안 6dB 줄이기", disabled: !activeBand, onSelect: () => spectralEdit({ kind: "gain", db: -6 }, "상자 안을 6dB 줄였어요.") },
+        { label: "상자 안 6dB 키우기", disabled: !activeBand, onSelect: () => spectralEdit({ kind: "gain", db: 6 }, "상자 안을 6dB 키웠어요.") },
       ],
     },
     {
@@ -1291,6 +1326,19 @@ export function App() {
               <button aria-pressed={spectral} title="스펙트럼 보기 (Shift+D)" onClick={() => setSpectral(!spectral)}>
                 🌈
               </button>
+              <button aria-pressed={spectral && boxSelect} title="주파수 상자로 고르기 (E): 스펙트럼에서 기침, 벨소리만 상자로 둘러 Delete" onClick={toggleBox}>
+                ⬚
+              </button>
+              {activeBand && (
+                <>
+                  <button title="상자 안 지우기 (Delete)" onClick={del}>
+                    ✂
+                  </button>
+                  <button title="상자 안을 앞뒤 소리로 메우기 (Shift+H)" onClick={() => spectralEdit({ kind: "heal" }, "상자 안을 앞뒤 소리로 메웠어요.")}>
+                    🩹
+                  </button>
+                </>
+              )}
               {live && rack.length > 0 && <span className="live-badge">🎛 랙 켜짐</span>}
             </div>
           </div>
@@ -1305,6 +1353,9 @@ export function App() {
                 playhead={playhead}
                 markers={markers}
                 spectral={spectral}
+                boxSelect={boxSelect}
+                band={activeBand}
+                onBand={setBand}
                 onSelect={onSelect}
                 onMarkerMove={onMarkerMove}
               />
