@@ -1,4 +1,5 @@
 import type { ModelerScene } from "./ModelerScene";
+import { EFFECTS, type EffectType } from "../effects/particles";
 import { SHAPES, type ShapeKind } from "./shapes";
 
 type Vec3 = [number, number, number];
@@ -15,6 +16,8 @@ export interface ScenePlan {
     rotation?: Vec3;
     scale?: Vec3;
     color?: string;
+    glow?: number;
+    effect?: EffectType;
   }[];
 }
 
@@ -34,6 +37,12 @@ export const AI_SYSTEM = `당신은 초보자용 3D 모델링 프로그램의 AI
   - cone: 바닥 지름 1, 높이 1 인 원뿔 (꼭짓점이 +y)
   - torus: 고리 반지름 0.4, 굵기 반지름 0.15 인 도넛 (xy 평면에 서 있음, 구멍이 z 방향)
   - plane: 2 x 2 크기의 바닥처럼 누운 판
+  - effect: 눈에 보이는 도형이 아니라 입자 이펙트를 뿜는 자리. effect 에 종류를 넣는다.
+    smoke(연기, 위로 2~3 피어오름), sparkle(반짝이, 지름 1.6 공간에서 반짝임), fire(불꽃, 위로 약 1 타오름),
+    snow(눈, 3x3 넓이에 높이 2 에서 내림), magic(마법, 빙글빙글 올라가는 빛), bubbles(거품, 떠오르는 방울).
+    position 은 이펙트가 시작하는 바닥 위치이고 scale 로 크기를 키운다. color 가 입자 색이다.
+- glow 를 1~3 으로 주면 그 도형이 자기 색으로 빛나고 빛이 번져 보인다 (전구, 용암, 네온, 마법 수정 등).
+- 예: 횃불은 갈색 cylinder 손잡이 + 그 위 fire effect, 굴뚝 연기는 굴뚝 꼭대기에 smoke effect.
 - 예: 바닥에 놓인 높이 2 인 기둥은 kind=cylinder, scale=[0.3, 2, 0.3], position=[0, 1, 0].
 
 작업 규칙:
@@ -59,7 +68,9 @@ export const AI_TOOL = {
           type: "object",
           properties: {
             name: { type: "string" },
-            kind: { type: "string", enum: SHAPES.map((s) => s.kind) },
+            kind: { type: "string", enum: [...SHAPES.map((s) => s.kind), "effect"] },
+            effect: { type: "string", enum: EFFECTS.map((e) => e.type), description: "kind 가 effect 일 때 이펙트 종류" },
+            glow: { type: "number", minimum: 0, maximum: 5, description: "스스로 빛나는 세기" },
             position: vec3,
             rotation: vec3,
             scale: vec3,
@@ -75,9 +86,11 @@ export const AI_TOOL = {
 
 /** AI 에게 보여줄 현재 장면 */
 export function sceneContext(model: ModelerScene) {
-  return model.getSnapshot().items.map(({ name, kind, position, rotation, scale, color }) => ({
+  return model.getSnapshot().items.map(({ name, kind, position, rotation, scale, color, glow, effect }) => ({
     name,
     kind,
+    ...(effect && { effect: effect.type }),
+    ...(glow && { glow }),
     position,
     rotation: rotation.map((r) => Math.round(r / DEG)),
     scale,
@@ -87,7 +100,8 @@ export function sceneContext(model: ModelerScene) {
 
 /** AI 의 답을 장면에 적용한다. 한 번에 실행 취소할 수 있게 하나로 기록된다. */
 export function applyPlan(model: ModelerScene, plan: ScenePlan): string {
-  const kinds = new Set(SHAPES.map((s) => s.kind));
+  const kinds = new Set<string>([...SHAPES.map((s) => s.kind), "effect"]);
+  const effects = new Set<string>(EFFECTS.map((e) => e.type));
   const finite = (v: unknown, fallback: Vec3): Vec3 =>
     Array.isArray(v) && v.length === 3 && v.every((n) => Number.isFinite(n)) ? (v as Vec3) : fallback;
 
@@ -95,6 +109,7 @@ export function applyPlan(model: ModelerScene, plan: ScenePlan): string {
     remove: plan.remove ?? [],
     upsert: (plan.objects ?? [])
       .filter((o) => o && typeof o.name === "string" && kinds.has(o.kind))
+      .filter((o) => o.kind !== "effect" || effects.has(o.effect ?? ""))
       .map((o) => ({
         name: o.name,
         kind: o.kind,
@@ -102,6 +117,8 @@ export function applyPlan(model: ModelerScene, plan: ScenePlan): string {
         rotation: finite(o.rotation, [0, 0, 0]).map((d) => d * DEG) as Vec3,
         scale: finite(o.scale, [1, 1, 1]),
         color: /^#[0-9a-fA-F]{6}$/.test(o.color ?? "") ? o.color!.toLowerCase() : undefined,
+        glow: Number.isFinite(o.glow) ? Math.min(Math.max(o.glow!, 0), 5) : undefined,
+        effect: o.kind === "effect" ? { type: o.effect!, amount: 1, speed: 1 } : undefined,
       })),
   });
   return plan.reply;
