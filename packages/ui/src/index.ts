@@ -11,3 +11,4 @@ export { Segmented } from "./components/Segmented";
 export { isTourOpen, Tour, useTour, type TourStep } from "./components/Tour";
 export { UpdateButton, useUpdater } from "./components/Updater";
 export { useHistory } from "./useHistory";
+export { canEncodeWebm, createWebmEncoder, type WebmEncoder, type WebmOptions } from "./webm";
