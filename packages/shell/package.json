@@ -6,7 +6,8 @@
   "exports": {
     "./main": "./src/main.ts",
     "./preload": "./src/preload.ts",
-    "./bridge": "./src/bridge.ts"
+    "./bridge": "./src/bridge.ts",
+    "./updater": "./src/updater.ts"
   },
   "peerDependencies": {
     "electron": "*"

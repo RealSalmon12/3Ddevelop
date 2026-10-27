@@ -23,6 +23,8 @@ export interface SuiteAppOptions {
   /** 빌드된 index.html 의 절대 경로 (개발 중에는 VITE_DEV_SERVER_URL 을 쓴다) */
   indexHtmlPath: string;
   backgroundColor?: string;
+  /** 창 크기. 없으면 작업용 큰 창 (1440×900). */
+  size?: { width: number; height: number; minWidth: number; minHeight: number };
   /** 새 버전을 찾을 곳. 없으면 업데이트 확인은 늘 "최신" 이라고 답한다. */
   updates?: UpdateSource;
 }
@@ -49,7 +51,7 @@ async function handleOpenFile(event: IpcMainInvokeEvent, request: OpenFileReques
   const filePath = result.filePaths[0];
   if (result.canceled || !filePath) return { ok: false, reason: "canceled" };
   try {
-    return { ok: true, path: filePath, text: await readFile(filePath, "utf8") };
+    return { ok: true, path: filePath, text: await readFile(filePath, request.binary ? "base64" : "utf8") };
   } catch (err) {
     return { ok: false, reason: "error", message: String(err) };
   }
@@ -61,6 +63,7 @@ function createWindow(options: SuiteAppOptions) {
     height: 900,
     minWidth: 960,
     minHeight: 600,
+    ...options.size,
     title: options.title,
     backgroundColor: options.backgroundColor ?? "#1d1f23",
     autoHideMenuBar: true,
