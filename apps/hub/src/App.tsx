@@ -4,10 +4,11 @@ import { SUITE_APPS, type SuiteApp } from "./catalog";
 import type { AppState, HubListResult } from "./hubBridge";
 import hubIcon from "./icons/hub.png";
 import modelerIcon from "./icons/modeler.png";
+import photoIcon from "./icons/photo.png";
 import pixelIcon from "./icons/pixel.png";
 import { AIKeyCard } from "./AIKeyCard";
 
-const ICONS: Record<string, string> = { modeler: modelerIcon, pixel: pixelIcon };
+const ICONS: Record<string, string> = { modeler: modelerIcon, pixel: pixelIcon, photo: photoIcon };
 
 type Busy = { id: string; ratio: number };
 
