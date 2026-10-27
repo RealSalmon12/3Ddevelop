@@ -8,10 +8,14 @@ import {
   StatusBar,
   Toast,
   Toolbar,
+  Tour,
+  isTourOpen,
   useToast,
+  useTour,
   type Menu,
   type Tool,
   type ToolAction,
+  type TourStep,
 } from "@suite/ui";
 import type { SelectMode } from "./mesh/selection";
 import { PropertiesPanel } from "./panels/PropertiesPanel";
@@ -49,6 +53,22 @@ const SELECT_MODES: { value: SelectMode; label: string; hint: string }[] = [
   { value: "face", label: "면", hint: "면 고르기 (3)" },
 ];
 
+const TOUR_STEPS: TourStep[] = [
+  { title: "3D 모델러에 오신 걸 환영해요! 👋", body: "1분이면 기본 사용법을 익힐 수 있어요. 언제든 ‘도움말’ 메뉴에서 이 안내를 다시 볼 수 있어요." },
+  { title: "화면 돌려보기", target: ".suite-main", body: "빈 곳을 왼쪽 버튼으로 끌면 돌려볼 수 있고, 오른쪽 버튼으로 끌면 화면이 옮겨져요. 마우스 휠로 확대/축소해요. 길을 잃으면 Home 키를 누르세요." },
+  { title: "도형 추가하기", target: ".suite-menu:nth-of-type(3)", body: "‘추가’ 메뉴에서 정육면체, 구, 원기둥 같은 도형을 넣을 수 있어요. 모든 모델은 이 도형들에서 시작해요." },
+  { title: "옮기고, 돌리고, 크기 바꾸기", target: ".suite-toolbar", body: "도형을 클릭해서 고른 뒤 이동(W), 회전(E), 크기(R) 도구로 손잡이를 끌어 보세요. 크기 손잡이는 끈 쪽만 늘어나요." },
+  { title: "숫자로 정확하게", target: ".suite-side .suite-panel:nth-of-type(2)", body: "속성 패널에서 위치, 크기, 색을 숫자로 바꿀 수 있어요. 실수하면 Ctrl+Z 로 되돌리면 돼요." },
+  { title: "편집 모드로 모양 바꾸기", target: ".viewport-header", body: "Tab 을 누르면 편집 모드가 돼요. 점, 선, 면을 골라 움직이고, 면을 골라 ‘돌출’하면 새 부분이 튀어나와요." },
+  { title: "AI 에게 부탁하기 ✨", target: ".suite-side .suite-panel:last-of-type", body: "만들고 싶은 것을 글로 쓰면 AI 가 만들어 줘요. 처음 한 번 ‘API 키 설정’에서 키를 넣어야 해요." },
+  { title: "저장과 내보내기", target: ".suite-menu:nth-of-type(1)", body: "‘파일’ 메뉴에서 저장(Ctrl+S)하고, 3D 프린팅용 STL 이나 게임용 GLB 로 내보낼 수 있어요. 이제 마음껏 만들어 보세요!" },
+];
+
+const SHORTCUT_HELP = `마우스: 왼쪽 드래그 돌려보기 · 오른쪽 드래그 옮기기 · 휠 확대/축소
+Q 선택 · W 이동 · E 회전 · R 크기 · Delete 지우기 · Ctrl+D 복제
+Ctrl+Z 되돌리기 · Ctrl+Y 다시 실행 · Ctrl+S 저장 · Home 처음 시점 · . 선택한 것 가운데로
+Tab 편집 모드 · 1/2/3 점/선/면 · A 모두 고르기 · Shift+E 돌출 · Shift+I 안쪽 면 · M 합치기`;
+
 const SHORTCUTS: Record<string, ToolId> = { q: "select", w: "move", e: "rotate", r: "scale" };
 const MODE_KEYS: Record<string, SelectMode> = { "1": "vertex", "2": "edge", "3": "face" };
 
@@ -69,6 +89,7 @@ export function App() {
   const [aiOpen, setAiOpen] = useState(true);
   const [toast, notify] = useToast();
   const file = useProjectFile(model, dirty, notify);
+  const tour = useTour("modeler");
   const onViewportReady = useCallback((v: ViewportRenderer | null) => setViewport(v), []);
 
   useEffect(() => viewport?.setTool(tool), [viewport, tool]);
@@ -85,8 +106,8 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // 글자를 입력하는 중에는 단축키를 쓰지 않는다.
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      // 글자를 입력하는 중이나 안내가 떠 있을 때는 단축키를 쓰지 않는다.
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || isTourOpen()) return;
       const key = e.key.toLowerCase();
 
       if (e.ctrlKey || e.metaKey) {
@@ -157,6 +178,13 @@ export function App() {
       items: [
         { label: "처음 시점으로", shortcut: "Home", onSelect: () => viewport?.resetView() },
         { label: "선택한 것 가운데로", shortcut: ".", onSelect: () => viewport?.frameSelected() },
+      ],
+    },
+    {
+      label: "도움말",
+      items: [
+        { label: "따라하기 안내 다시 보기", onSelect: tour.start },
+        { label: "단축키 보기", onSelect: () => window.alert(SHORTCUT_HELP) },
       ],
     },
   ];
@@ -248,6 +276,7 @@ export function App() {
         {edit && <Segmented label="고르는 단위" value={edit.mode} onChange={(m) => model.setSelectMode(m)} options={SELECT_MODES} />}
       </div>
       <Toast message={toast} />
+      <Tour steps={TOUR_STEPS} open={tour.open} onFinish={tour.finish} />
     </AppFrame>
   );
 }

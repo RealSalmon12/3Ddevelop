@@ -7,3 +7,4 @@ export { StatusBar } from "./components/StatusBar";
 export { AIAssistantPanel } from "./components/AIAssistantPanel";
 export { Toast, useToast } from "./components/Toast";
 export { Segmented } from "./components/Segmented";
+export { isTourOpen, Tour, useTour, type TourStep } from "./components/Tour";
