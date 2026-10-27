@@ -2,7 +2,7 @@
   "name": "@suite/pixel",
   "version": "0.1.0",
   "private": true,
-  "description": "누구나 스튜디오 픽셀 그림판",
+  "description": "누구나 스튜디오 도트 아틀리에",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -27,7 +27,7 @@
   "author": "누구나 스튜디오",
   "build": {
     "appId": "com.nugunastudio.pixel",
-    "productName": "픽셀 그림판",
+    "productName": "도트 아틀리에",
     "artifactName": "NugunaStudio-Pixel-Setup-${version}.${ext}",
     "directories": {
       "output": "release",
@@ -48,14 +48,14 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "픽셀 그림판",
+      "shortcutName": "도트 아틀리에",
       "language": "1042"
     },
     "fileAssociations": [
       {
         "ext": "npixel",
-        "name": "픽셀 그림판 파일",
-        "description": "픽셀 그림판 파일",
+        "name": "도트 아틀리에 파일",
+        "description": "도트 아틀리에 파일",
         "role": "Editor"
       }
     ],

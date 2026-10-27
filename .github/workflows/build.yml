@@ -39,16 +39,19 @@ jobs:
             title: 누구나 스튜디오 허브
             latest: "true"
           - app: modeler
-            title: 3D 모델러
+            title: 스컬프트 3D
             latest: "false"
           - app: pixel
-            title: 픽셀 그림판
+            title: 도트 아틀리에
             latest: "false"
           - app: photo
-            title: 사진 편집기
+            title: 루미 포토
             latest: "false"
           - app: sound
-            title: 소리 편집기
+            title: 웨이브 랩
+            latest: "false"
+          - app: video
+            title: 무비 컷
             latest: "false"
     steps:
       - uses: actions/checkout@v4

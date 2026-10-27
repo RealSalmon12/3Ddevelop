@@ -23,7 +23,7 @@ import { AI_SYSTEM, AI_TOOL, toSfx } from "./ai";
 import { Waveform } from "./Waveform";
 
 const TOUR_STEPS: TourStep[] = [
-  { title: "소리 편집기에 오신 걸 환영해요! 👋", body: "목소리를 녹음하거나 소리 파일을 열어서 자르고 붙이고, 게임 효과음도 만들 수 있어요." },
+  { title: "웨이브 랩에 오신 걸 환영해요! 👋", body: "목소리를 녹음하거나 소리 파일을 열어서 자르고 붙이고, 게임 효과음도 만들 수 있어요." },
   { title: "소리 가져오기", target: ".sound-top", body: "● 녹음으로 목소리를 녹음하거나, ‘파일 → 열기’로 mp3·wav 파일을 열어요. 파일을 창에 끌어다 놓아도 돼요." },
   { title: "고르고 고치기", target: ".suite-toolbar", body: "파형 위를 끌어서 부분을 고른 뒤, 왼쪽 버튼으로 지우기, 남기기, 페이드, 메아리 같은 걸 해요. 아무것도 안 고르면 전체에 적용돼요." },
   { title: "게임 효과음 만들기", target: ".suite-side .suite-panel:nth-of-type(1)", body: "동전, 점프, 레이저 같은 버튼을 누르면 효과음이 생겨요. 막대로 높이와 길이를 바꿔 보세요." },
@@ -57,7 +57,7 @@ export function App() {
   const range: A.Range = selection ?? { start: 0, end: n };
 
   useEffect(() => {
-    document.title = `${history.dirty ? "● " : ""}${name} - 소리 편집기`;
+    document.title = `${history.dirty ? "● " : ""}${name} - 웨이브 랩`;
     window.suite?.window.setDirty(history.dirty);
   }, [name, history.dirty]);
 
@@ -302,7 +302,7 @@ export function App() {
     <AppFrame
       menubar={
         <MenuBar
-          appName="소리 편집기"
+          appName="웨이브 랩"
           menus={menus}
           actions={
             <>
