@@ -175,3 +175,61 @@ export function mergeVertices(source: PolyMesh, vertexIds: Set<number>): { mesh:
   const vertex = result.vertices.findIndex((v) => v === center);
   return { mesh: result, vertex };
 }
+
+/**
+ * 모서리 깎기: 모든 면을 조금씩 안으로 줄이고, 생긴 틈을 선마다 사각형, 꼭짓점마다 다각형으로 메운다.
+ * 닫힌 메시에서 모든 모서리가 비스듬히 깎이고, 두 번 하면 더 둥글어진다.
+ * 바닥판처럼 열린 메시는 깎으면 면이 줄어들기만 하므로 null 을 돌려준다.
+ */
+export function bevelAll(source: PolyMesh, amount = 0.15): PolyMesh | null {
+  const directed = new Set<string>();
+  source.faces.forEach((face) => face.forEach((a, i) => directed.add(`${a}>${face[(i + 1) % face.length]}`)));
+  for (const key of directed) {
+    const [a, b] = key.split(">");
+    if (!directed.has(`${b}>${a}`)) return null;
+  }
+
+  const vertices: Vec3[] = [];
+  const corner = new Map<string, number>();
+  const faces: number[][] = source.faces.map((face, f) => {
+    const center = faceCenter(source, face);
+    return face.map((v) => {
+      corner.set(`${f}:${v}`, vertices.length);
+      vertices.push(lerp(source.vertices[v], center, amount));
+      return vertices.length - 1;
+    });
+  });
+  const c = (f: number, v: number) => corner.get(`${f}:${v}`)!;
+
+  // 방향 있는 선 a→b 를 가진 면. 반대 방향 b→a 를 가진 면이 이웃이다.
+  const owner = new Map<string, number>();
+  source.faces.forEach((face, f) => face.forEach((a, i) => owner.set(`${a}>${face[(i + 1) % face.length]}`, f)));
+
+  source.faces.forEach((face, f) => {
+    face.forEach((a, i) => {
+      const b = face[(i + 1) % face.length];
+      if (a > b) return;
+      const g = owner.get(`${b}>${a}`)!;
+      faces.push([c(f, b), c(f, a), c(g, a), c(g, b)]);
+    });
+  });
+
+  // 꼭짓점마다 둘러싼 면들을 차례로 따라가서 구멍을 막는다.
+  const firstFace = new Map<number, number>();
+  source.faces.forEach((face, f) => face.forEach((v) => firstFace.has(v) || firstFace.set(v, f)));
+  for (const [v, start] of firstFace) {
+    const ring: number[] = [];
+    let f: number | undefined = start;
+    while (f !== undefined && ring.length <= source.faces.length) {
+      ring.push(f);
+      const face: number[] = source.faces[f];
+      const next = face[(face.indexOf(v) + 1) % face.length];
+      f = owner.get(`${next}>${v}`);
+      if (f === start) break;
+    }
+    if (f !== start || ring.length < 3) continue;
+    faces.push(ring.reverse().map((g) => c(g, v)));
+  }
+
+  return { vertices, faces };
+}

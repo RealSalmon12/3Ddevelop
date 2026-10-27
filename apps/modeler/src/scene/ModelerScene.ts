@@ -440,6 +440,18 @@ export class ModelerScene {
     return this.applyFaceOperation((poly, faces) => ops.subdivideFaces(poly, faces));
   }
 
+  /** 모서리 깎기: 고른 것과 상관없이 오브젝트 전체 모서리를 깎는다. 열린 메시면 false. */
+  bevel() {
+    const poly = this.editingPoly();
+    if (!poly) return false;
+    const next = ops.bevelAll(poly);
+    if (!next) return false;
+    this.setEditingPoly(next);
+    this.editSelection = emptySelection(this.editSelection.mode);
+    this.commit();
+    return true;
+  }
+
   flip() {
     return this.applyFaceOperation((poly, faces) => ops.flipFaces(poly, faces));
   }

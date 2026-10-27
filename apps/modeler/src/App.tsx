@@ -102,6 +102,7 @@ export function App() {
     { label: "돌출", icon: "⬆", hint: "고른 면을 바깥으로 밀어내며 벽을 세워요", shortcut: "Shift+E", onRun: () => model.extrude() || notify(needFaces) },
     { label: "안쪽 면", icon: "▣", hint: "고른 면 안쪽에 작은 면을 만들어요", shortcut: "Shift+I", onRun: () => model.inset() || notify(needFaces) },
     { label: "세분화", icon: "⊞", hint: "고른 면을 더 작은 면으로 나눠요", onRun: () => model.subdivide() || notify(needFaces) },
+    { label: "모서리 깎기", icon: "◇", hint: "모든 모서리를 비스듬히 깎아요. 여러 번 하면 둥글어져요", shortcut: "Ctrl+B", onRun: () => model.bevel() || notify("구멍 없이 닫힌 모양에서만 깎을 수 있어요. 편집 모드에서 써 주세요.") },
     { label: "합치기", icon: "⊙", hint: "고른 점들을 한 점으로 합쳐요", shortcut: "M", onRun: () => model.merge() || notify("합칠 점을 두 개 이상 골라 주세요.") },
     { label: "뒤집기", icon: "⇅", hint: "고른 면의 앞뒤를 바꿔요", onRun: () => model.flip() || notify(needFaces) },
     { label: "지우기", icon: "✕", hint: "고른 점, 선, 면을 지워요", shortcut: "Delete", onRun: () => model.deleteEditSelection() || notify("지울 것을 먼저 골라 주세요.") },
@@ -121,6 +122,7 @@ export function App() {
           o: () => file.open(),
           n: () => file.newFile(),
           d: () => model.duplicateSelected(),
+          b: () => void (model.bevel() || notify("구멍 없이 닫힌 모양에서만 깎을 수 있어요. 편집 모드에서 써 주세요.")),
         };
         if (actions[key]) {
           e.preventDefault();
