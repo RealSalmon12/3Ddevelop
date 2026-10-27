@@ -154,6 +154,7 @@
 .hub-small a { color: var(--ai); }
 .hub-side-card form .hub-small { margin: 0 0 10px; }
 .hub-remove { margin-top: 8px; }
+.hub-small + .hub-button { margin-top: 12px; }
 .hub-steps { margin: 0; padding-left: 20px; color: var(--text-dim); line-height: 1.6; }
 .hub-steps li { margin-bottom: 6px; }
 .hub-steps b { color: var(--text); }
