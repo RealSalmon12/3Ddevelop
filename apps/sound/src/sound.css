@@ -152,3 +152,87 @@
 }
 .dialog h2 { margin: 0 0 8px; font-size: 18px; letter-spacing: -0.03em; }
 .dialog-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 16px; }
+
+/* ── 화면 바꾸기 (파형 / 멀티트랙) ── */
+.mode-switch { display: flex; margin-right: 6px; padding: 2px; border-radius: var(--radius-s); background: var(--bg); border: 1px solid var(--border); }
+.mode-switch button { padding: 4px 10px; border: 0; border-radius: 4px; background: none; color: var(--text-dim); font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.mode-switch button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+
+/* ── 멀티트랙 ── */
+.mt-stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr 44px;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+.mt-tools { display: flex; gap: 4px; min-width: 0; overflow: hidden; }
+.transport .mt-tools .mini { width: auto; height: 32px; padding: 0 10px; font-size: 12px; white-space: nowrap; }
+.transport .mt-mix { flex: none; width: auto; height: 34px; padding: 0 14px; }
+.mt { position: relative; min-height: 0; display: grid; grid-template-rows: 26px 1fr; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: #0d0f16; user-select: none; }
+.mt-top { display: grid; grid-template-columns: 236px 1fr; border-bottom: 1px solid var(--border); }
+.mt-corner { display: flex; align-items: center; padding: 0 10px; font-size: 11px; color: var(--text-dim); background: var(--bg-panel); border-right: 1px solid var(--border); white-space: nowrap; }
+.mt-ruler { position: relative; overflow: hidden; cursor: ew-resize; background: #121521; }
+.mt-ruler span { position: absolute; top: 0; bottom: 0; padding: 6px 0 0 4px; border-left: 1px solid #3a4258; color: #8a93ab; font: 10px ui-monospace, Consolas, monospace; white-space: nowrap; }
+.mt-tracks { position: relative; overflow-y: auto; overflow-x: hidden; }
+.mt-row { display: grid; grid-template-columns: 236px 1fr; height: 92px; border-bottom: 1px solid #1d2232; }
+.mt-head {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px 6px 12px;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  box-shadow: inset 4px 0 0 var(--clip);
+}
+.mt-head.selected { background: color-mix(in srgb, var(--bg-panel) 82%, var(--clip)); }
+.mt-head-row { display: flex; align-items: center; gap: 3px; }
+.mt-name { flex: 1; min-width: 0; padding: 3px 6px; background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--text); font: inherit; font-size: 12px; font-weight: 700; }
+.mt-name:focus, .mt-name:hover { border-color: var(--border); background: var(--bg); }
+.mt-btn { min-width: 22px; height: 22px; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-dim); font: 700 10px ui-monospace, Consolas, monospace; cursor: pointer; }
+.mt-btn:hover:not(:disabled) { color: var(--text); }
+.mt-btn:disabled { opacity: 0.3; cursor: default; }
+.mt-btn.m[aria-pressed="true"] { background: #4a90ff; border-color: #4a90ff; color: #06142c; }
+.mt-btn.s[aria-pressed="true"] { background: #ffc83d; border-color: #ffc83d; color: #2c2206; }
+.mt-btn.fx[aria-pressed="true"] { color: #7fe0a8; border-color: #3d7a59; }
+.mt-btn.x { border-color: transparent; background: none; }
+.mt-slider { display: grid; grid-template-columns: 16px 1fr 38px; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); }
+.mt-slider input { width: 100%; min-width: 0; height: 14px; accent-color: var(--clip); }
+.mt-slider em { font: normal 10px ui-monospace, Consolas, monospace; text-align: right; color: var(--text); }
+.mt-meter { height: 4px; margin-top: 2px; border-radius: 2px; background: #1a1e2b; overflow: hidden; }
+.mt-meter i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #3ecf8e, #3ecf8e 70%, #ffc83d 88%, #ff5a5a); background-size: 220px 100%; }
+.mt-meter i.hot { box-shadow: inset -3px 0 0 #ff5a5a; }
+.mt-index { position: absolute; right: 8px; bottom: 6px; font: 10px ui-monospace, Consolas, monospace; color: #4a5168; }
+.mt-lane { position: relative; overflow: hidden; cursor: text; }
+.mt-lane.selected { background: rgba(255, 255, 255, 0.025); }
+.mt-clip {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--clip) 22%, #10131c);
+  border: 1px solid color-mix(in srgb, var(--clip) 55%, transparent);
+  overflow: hidden;
+  cursor: grab;
+}
+.mt-clip.selected { border-color: #fff; box-shadow: 0 0 0 1px #fff; }
+.mt-clip-name { height: 16px; padding-right: 6px; font-size: 11px; line-height: 16px; white-space: nowrap; overflow: hidden; color: #fff; background: color-mix(in srgb, var(--clip) 55%, #0d0f16); }
+.mt-clip-name small { opacity: 0.75; }
+.mt-clip-wave { position: absolute; top: 16px; height: calc(100% - 16px); pointer-events: none; }
+.mt-edge { position: absolute; top: 16px; bottom: 0; width: 7px; cursor: ew-resize; }
+.mt-edge.l { left: 0; }
+.mt-edge.r { right: 0; }
+.mt-edge:hover { background: rgba(255, 255, 255, 0.18); }
+.mt-fade { position: absolute; top: 17px; width: 9px; height: 9px; margin-left: -4px; background: #fff; border-radius: 2px; opacity: 0; cursor: ew-resize; }
+.mt-fade.r { margin: 0 -4px 0 0; }
+.mt-clip:hover .mt-fade, .mt-clip.selected .mt-fade { opacity: 0.9; }
+.mt-playhead { position: absolute; top: 0; bottom: 0; width: 1px; background: #ff5a5a; pointer-events: none; box-shadow: 0 0 6px rgba(255, 90, 90, 0.6); }
+.mt-empty { position: absolute; left: 236px; right: 0; top: 40%; text-align: center; color: var(--text-dim); pointer-events: none; padding: 0 30px; font-size: 13px; }
+.mt-empty .big { font-size: 20px; font-weight: 700; color: var(--text); }
+.clip-title { margin: 0 0 6px; font-weight: 700; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; max-height: 200px; overflow-y: auto; }
+.source-list li { display: flex; justify-content: space-between; gap: 6px; padding: 5px 8px; border-radius: 4px; background: var(--bg); font-size: 12px; cursor: grab; }
+.source-list li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-list small { color: var(--text-dim); font-family: ui-monospace, Consolas, monospace; }

@@ -24,6 +24,7 @@ import { buildRack, renderRack, type Fx } from "./effects";
 import { AI_SYSTEM, AI_TOOL, toSfx } from "./ai";
 import { RackPanel, Knob } from "./Rack";
 import { Wave, clampView, timeLabel, type Marker, type View } from "./Wave";
+import { MultitrackSidebar, MultitrackView, useMultitrack } from "./Multitrack";
 
 const TOUR_STEPS: TourStep[] = [
   { title: "바코 파도에 오신 걸 환영해요! 👋", body: "목소리, 음악, 게임 효과음을 전문 오디오 편집기처럼 다듬는 곳이에요. 녹음하거나 소리 파일을 끌어다 놓아 보세요." },
@@ -299,6 +300,27 @@ export function App() {
   const tour = useTour("sound");
   const updater = useUpdater(notify);
   const playing = useRef<Playing | null>(null);
+  const [mode, setModeRaw] = useState<"wave" | "multi">("wave");
+  const mt = useMultitrack({
+    active: mode === "multi",
+    ctx,
+    notify,
+    decode: async (bytes) => A.fromAudioBuffer(await ctx().decodeAudioData(bytes)),
+    currentSound: () => ({ sound: history.get(), name }),
+    openInEditor: (s, label) => {
+      if (history.dirty && !window.confirm("파형 편집기에 저장하지 않은 소리가 있어요. 바꿀까요?")) return;
+      stop();
+      history.reset(s, true);
+      setName(label);
+      setPath(undefined);
+      setSelection(null);
+      setCursor(0);
+      setMarkers([]);
+      setModeRaw("wave");
+      notify(`‘${label}’ 을(를) 파형 편집기에서 열었어요. 9 를 누르면 멀티트랙으로 돌아가요.`);
+    },
+    openSearch: () => setSearchOpen(true),
+  });
   const range: A.Range = selection ?? { start: 0, end: n };
   const rate = sound.sampleRate;
 
@@ -317,9 +339,10 @@ export function App() {
   }, [n]);
 
   useEffect(() => {
-    document.title = `${history.dirty ? "● " : ""}${name} - 바코 파도`;
-    window.suite?.window.setDirty(history.dirty);
-  }, [name, history.dirty]);
+    const [label, dirty] = mode === "multi" ? [mt.name, mt.dirty] : [name, history.dirty];
+    document.title = `${dirty ? "● " : ""}${label} - 바코 파도`;
+    window.suite?.window.setDirty(history.dirty || mt.dirty);
+  }, [name, history.dirty, mode, mt.name, mt.dirty]);
 
   /* ───────── 재생 ───────── */
 
@@ -339,6 +362,11 @@ export function App() {
     setPlayhead(null);
     setSpectrum(null);
   }, []);
+
+  const setMode = (m: "wave" | "multi") => {
+    stop();
+    setModeRaw(m);
+  };
 
   const liveRef = useRef({ live, rack });
   liveRef.current = { live, rack };
@@ -847,6 +875,8 @@ export function App() {
         if (e.key === "Escape") setDialog(null);
         return;
       }
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "8" || e.key === "9")) return setMode(e.key === "8" ? "wave" : "multi");
+      if (mode === "multi") return;
       const key = e.key.toLowerCase();
       if (e.key === "F3") {
         e.preventDefault();
@@ -897,6 +927,7 @@ export function App() {
     const over = (e: DragEvent) => e.preventDefault();
     const drop = async (e: DragEvent) => {
       e.preventDefault();
+      if (mode === "multi") return;
       const file = e.dataTransfer?.files[0];
       if (file) await loadBytes(await file.arrayBuffer(), file.name.replace(/\.[^.]+$/, ""), window.suite?.files.pathOf(file));
     };
@@ -1004,10 +1035,14 @@ export function App() {
     },
   ];
 
+  const modeItem = mode === "wave" ? { label: "멀티트랙 화면으로", shortcut: "9", onSelect: () => setMode("multi") } : { label: "파형 편집 화면으로", shortcut: "8", onSelect: () => setMode("wave") };
+  const activeHistory = mode === "multi" ? mt.history : history;
+  const shownMenus: Menu[] = (mode === "wave" ? menus : [...mt.menus, menus[menus.length - 1]]).map((m) => (m.label === "보기" ? { ...m, items: [modeItem, ...m.items] } : m));
+
   // Shift+P 는 메뉴 단축키라서 따로 받는다
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.shiftKey && !e.ctrlKey && e.key.toLowerCase() === "p" && !(e.target instanceof HTMLInputElement) && !dialog) captureNoise();
+      if (mode === "wave" && e.shiftKey && !e.ctrlKey && e.key.toLowerCase() === "p" && !(e.target instanceof HTMLInputElement) && !dialog) captureNoise();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1025,17 +1060,25 @@ export function App() {
       menubar={
         <MenuBar
           appName="바코 파도"
-          menus={menus}
+          menus={shownMenus}
           actions={
             <>
-              <button className="suite-menubar-action history-button" disabled={!history.canUndo} title="실행 취소 (Ctrl+Z)" onClick={history.undo}>
+              <div className="mode-switch" role="tablist">
+                <button role="tab" aria-selected={mode === "wave"} title="파형 편집 (8)" onClick={() => setMode("wave")}>
+                  〰 파형
+                </button>
+                <button role="tab" aria-selected={mode === "multi"} title="멀티트랙 (9)" onClick={() => setMode("multi")}>
+                  ▤ 멀티트랙
+                </button>
+              </div>
+              <button className="suite-menubar-action history-button" disabled={!activeHistory.canUndo} title="실행 취소 (Ctrl+Z)" onClick={activeHistory.undo}>
                 ↶
               </button>
-              <button className="suite-menubar-action history-button" disabled={!history.canRedo} title="다시 실행 (Ctrl+Y)" onClick={history.redo}>
+              <button className="suite-menubar-action history-button" disabled={!activeHistory.canRedo} title="다시 실행 (Ctrl+Y)" onClick={activeHistory.redo}>
                 ↷
               </button>
-              <UpdateButton updater={updater} hasUnsavedWork={history.dirty} />
-              <button className="suite-menubar-action export-button" onClick={() => (n ? setDialog({ kind: "export" }) : notify("저장할 소리가 없어요."))}>
+              <UpdateButton updater={updater} hasUnsavedWork={history.dirty || mt.dirty} />
+              <button className="suite-menubar-action export-button" onClick={() => (mode === "multi" ? void mt.exportMix() : n ? setDialog({ kind: "export" }) : notify("저장할 소리가 없어요."))}>
                 ⬆ 내보내기
               </button>
               <button className="suite-menubar-action ai" aria-pressed={aiOpen} onClick={() => setAiOpen(!aiOpen)}>
@@ -1046,217 +1089,246 @@ export function App() {
         />
       }
       sidebar={
-        <>
-          <RackPanel rack={rack} setRack={setRack} live={live} setLive={setLive} onApply={() => void applyRack()} busy={busy} spectrum={spectrum} />
-          <Panel title="📍 마커" className="marker-panel">
-            {markers.length ? (
-              <ul className="marker-list">
-                {markers.map((m) => (
-                  <li key={m.id}>
-                    <button
-                      className="marker-go"
-                      title="여기로 가기"
-                      onClick={() => {
-                        setCursor(m.at);
-                        setSelection(null);
-                      }}
-                    >
-                      {timeLabel(m.at / rate, true)}
-                    </button>
-                    <input value={m.label} onChange={(e) => setMarkers(markers.map((x) => (x.id === m.id ? { ...x, label: e.target.value } : x)))} />
-                    <button className="rack-x" title="지우기" onClick={() => setMarkers(markers.filter((x) => x.id !== m.id))}>
-                      ✕
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="panel-empty">M 을 누르면 커서 자리에 마커가 생겨요. 노래의 후렴, 대사 시작처럼 표시해 두세요.</p>
-            )}
-          </Panel>
-          <Panel title="📊 분석" className="info-panel">
-            <div className="info-grid">
-              <span>범위</span>
-              <b>{selection ? "고른 부분" : "전체"}</b>
-              <span>최대 (Peak)</span>
-              <b>{info ? `${fmtDb(info.peakDb)} dB` : "–"}</b>
-              <span>평균 (RMS)</span>
-              <b>{info ? `${fmtDb(info.rmsDb)} dB` : "–"}</b>
-              <span>라우드니스</span>
-              <b className={info && info.lufs > -9 ? "warn" : ""}>{info ? `${fmtDb(info.lufs)} LUFS` : "–"}</b>
-            </div>
-            <div className="prop-buttons">
-              <button className="mini" onClick={analyze} disabled={!n}>
-                측정하기
-              </button>
-              <button className="mini" onClick={() => params(FX.loudness())} disabled={!n}>
-                -14 LUFS 로 맞추기…
-              </button>
-            </div>
-          </Panel>
-          {sfxOpen && (
-            <Panel title="🎮 게임 효과음 만들기" className="sfx-panel">
-              <div className="sfx-presets">
-                {A.SFX_PRESETS.map((p) => (
-                  <button
-                    key={p.label}
-                    className="mini"
-                    onClick={() => {
-                      setSfx(p.params);
-                      play(A.synth(p.params));
-                    }}
-                  >
-                    {p.icon} {p.label}
-                  </button>
-                ))}
-                <button
-                  className="mini"
-                  onClick={() => {
-                    const r = A.randomSfx();
-                    setSfx(r);
-                    play(A.synth(r));
-                  }}
-                >
-                  🎲 아무거나
-                </button>
+        mode === "multi" ? (
+          <MultitrackSidebar mt={mt} />
+        ) : (
+          <>
+            <RackPanel rack={rack} setRack={setRack} live={live} setLive={setLive} onApply={() => void applyRack()} busy={busy} spectrum={spectrum} />
+            <Panel title="📍 마커" className="marker-panel">
+              {markers.length ? (
+                <ul className="marker-list">
+                  {markers.map((m) => (
+                    <li key={m.id}>
+                      <button
+                        className="marker-go"
+                        title="여기로 가기"
+                        onClick={() => {
+                          setCursor(m.at);
+                          setSelection(null);
+                        }}
+                      >
+                        {timeLabel(m.at / rate, true)}
+                      </button>
+                      <input value={m.label} onChange={(e) => setMarkers(markers.map((x) => (x.id === m.id ? { ...x, label: e.target.value } : x)))} />
+                      <button className="rack-x" title="지우기" onClick={() => setMarkers(markers.filter((x) => x.id !== m.id))}>
+                        ✕
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="panel-empty">M 을 누르면 커서 자리에 마커가 생겨요. 노래의 후렴, 대사 시작처럼 표시해 두세요.</p>
+              )}
+            </Panel>
+            <Panel title="📊 분석" className="info-panel">
+              <div className="info-grid">
+                <span>범위</span>
+                <b>{selection ? "고른 부분" : "전체"}</b>
+                <span>최대 (Peak)</span>
+                <b>{info ? `${fmtDb(info.peakDb)} dB` : "–"}</b>
+                <span>평균 (RMS)</span>
+                <b>{info ? `${fmtDb(info.rmsDb)} dB` : "–"}</b>
+                <span>라우드니스</span>
+                <b className={info && info.lufs > -9 ? "warn" : ""}>{info ? `${fmtDb(info.lufs)} LUFS` : "–"}</b>
               </div>
-              <label className="dialog-row">
-                <span>소리 종류</span>
-                <select value={sfx.wave} onChange={(e) => setSfx({ ...sfx, wave: e.target.value as A.SfxParams["wave"] })}>
-                  <option value="square">네모 (게임기)</option>
-                  <option value="saw">톱니 (날카로움)</option>
-                  <option value="triangle">세모 (맑음)</option>
-                  <option value="sine">둥근 (부드러움)</option>
-                  <option value="noise">지글지글 (폭발, 바람)</option>
-                </select>
-              </label>
-              {sfxSlider("시작 높이", "startFreq", 40, 3000, 1, "Hz")}
-              {sfxSlider("끝 높이", "endFreq", 40, 3000, 1, "Hz")}
-              {sfxSlider("길이", "duration", 0.03, 2, 0.01, "초")}
-              {sfxSlider("떨림", "vibrato", 0, 1, 0.01, "")}
-              {sfxSlider("크기", "volume", 0.05, 1, 0.01, "")}
               <div className="prop-buttons">
-                <button className="mini" onClick={() => play(A.synth(sfx))}>
-                  ▶ 들어 보기
+                <button className="mini" onClick={analyze} disabled={!n}>
+                  측정하기
                 </button>
-                <button className="mini go" onClick={() => insertClip(A.synth(sfx, n ? rate : 44100))}>
-                  ＋ 커서 자리에 넣기
+                <button className="mini" onClick={() => params(FX.loudness())} disabled={!n}>
+                  -14 LUFS 로 맞추기…
                 </button>
               </div>
             </Panel>
-          )}
-          {aiOpen && (
-            <AIAssistantPanel
-              app="sound"
-              greeting="안녕하세요! 만들고 싶은 효과음을 말해 주세요. 예를 들어 “보물상자 여는 소리”처럼요."
-              examples={["보물상자 여는 소리", "슬라임이 튀는 소리", "우주선 경보음"]}
-              getContext={() => ({ current: sfx })}
-              system={AI_SYSTEM}
-              tool={AI_TOOL}
-              onResponse={({ text, toolInput }) => {
-                if (!toolInput) return text;
-                const p = toSfx(toolInput as Record<string, unknown>);
-                setSfx(p);
-                setSfxOpen(true);
-                play(A.synth(p));
-                return `${(toolInput as { message?: string }).message ?? "만들었어요."}\n(마음에 들면 ‘게임 효과음’ 패널의 ‘＋ 커서 자리에 넣기’를 눌러요)`;
-              }}
-            />
-          )}
-        </>
+            {sfxOpen && (
+              <Panel title="🎮 게임 효과음 만들기" className="sfx-panel">
+                <div className="sfx-presets">
+                  {A.SFX_PRESETS.map((p) => (
+                    <button
+                      key={p.label}
+                      className="mini"
+                      onClick={() => {
+                        setSfx(p.params);
+                        play(A.synth(p.params));
+                      }}
+                    >
+                      {p.icon} {p.label}
+                    </button>
+                  ))}
+                  <button
+                    className="mini"
+                    onClick={() => {
+                      const r = A.randomSfx();
+                      setSfx(r);
+                      play(A.synth(r));
+                    }}
+                  >
+                    🎲 아무거나
+                  </button>
+                </div>
+                <label className="dialog-row">
+                  <span>소리 종류</span>
+                  <select value={sfx.wave} onChange={(e) => setSfx({ ...sfx, wave: e.target.value as A.SfxParams["wave"] })}>
+                    <option value="square">네모 (게임기)</option>
+                    <option value="saw">톱니 (날카로움)</option>
+                    <option value="triangle">세모 (맑음)</option>
+                    <option value="sine">둥근 (부드러움)</option>
+                    <option value="noise">지글지글 (폭발, 바람)</option>
+                  </select>
+                </label>
+                {sfxSlider("시작 높이", "startFreq", 40, 3000, 1, "Hz")}
+                {sfxSlider("끝 높이", "endFreq", 40, 3000, 1, "Hz")}
+                {sfxSlider("길이", "duration", 0.03, 2, 0.01, "초")}
+                {sfxSlider("떨림", "vibrato", 0, 1, 0.01, "")}
+                {sfxSlider("크기", "volume", 0.05, 1, 0.01, "")}
+                <div className="prop-buttons">
+                  <button className="mini" onClick={() => play(A.synth(sfx))}>
+                    ▶ 들어 보기
+                  </button>
+                  <button className="mini go" onClick={() => insertClip(A.synth(sfx, n ? rate : 44100))}>
+                    ＋ 커서 자리에 넣기
+                  </button>
+                </div>
+              </Panel>
+            )}
+            {aiOpen && (
+              <AIAssistantPanel
+                app="sound"
+                greeting="안녕하세요! 만들고 싶은 효과음을 말해 주세요. 예를 들어 “보물상자 여는 소리”처럼요."
+                examples={["보물상자 여는 소리", "슬라임이 튀는 소리", "우주선 경보음"]}
+                getContext={() => ({ current: sfx })}
+                system={AI_SYSTEM}
+                tool={AI_TOOL}
+                onResponse={({ text, toolInput }) => {
+                  if (!toolInput) return text;
+                  const p = toSfx(toolInput as Record<string, unknown>);
+                  setSfx(p);
+                  setSfxOpen(true);
+                  play(A.synth(p));
+                  return `${(toolInput as { message?: string }).message ?? "만들었어요."}\n(마음에 들면 ‘게임 효과음’ 패널의 ‘＋ 커서 자리에 넣기’를 눌러요)`;
+                }}
+              />
+            )}
+          </>
+        )
       }
       statusbar={
-        <StatusBar hint="끌기: 고르기 · 휠: 확대 · Shift+휠: 옆으로 · Space: 재생 · L: 반복 · M: 마커 · Shift+D: 스펙트럼 · F3: 기능 검색">
-          <span>
-            {history.dirty ? "● " : ""}
-            {name}
-          </span>
-          <span>
-            {rate.toLocaleString()} Hz · {sound.channels.length === 2 ? "스테레오" : "모노"} · 32비트 실수
-          </span>
-          <span>
-            {timeLabel(A.secondsOf(sound), true)} · {((n * sound.channels.length * 4) / 1024 / 1024).toFixed(1)} MB
-          </span>
+        <StatusBar
+          hint={
+            mode === "multi"
+              ? "조각 끌기: 옮기기 · 가장자리: 다듬기 · 위 모서리 네모: 페이드 · Ctrl+K: 자르기 · Space: 재생 · 8: 파형 편집"
+              : "끌기: 고르기 · 휠: 확대 · Shift+휠: 옆으로 · Space: 재생 · L: 반복 · M: 마커 · Shift+D: 스펙트럼 · 9: 멀티트랙 · F3: 기능 검색"
+          }
+        >
+          {mode === "multi" ? (
+            <>
+              <span>
+                {mt.dirty ? "● " : ""}
+                {mt.name}
+              </span>
+              <span>
+                {mt.session.sampleRate.toLocaleString()} Hz · 스테레오 믹스 · 트랙 {mt.session.tracks.length}개
+              </span>
+              <span>{timeLabel(mt.length, true)}</span>
+            </>
+          ) : (
+            <>
+            <span>
+              {history.dirty ? "● " : ""}
+              {name}
+            </span>
+            <span>
+              {rate.toLocaleString()} Hz · {sound.channels.length === 2 ? "스테레오" : "모노"} · 32비트 실수
+            </span>
+            <span>
+              {timeLabel(A.secondsOf(sound), true)} · {((n * sound.channels.length * 4) / 1024 / 1024).toFixed(1)} MB
+            </span>
+            </>
+          )}
         </StatusBar>
       }
     >
-      <div className="sound-stage">
-        <div className="transport">
-          <button title="처음으로 (Home)" onClick={() => (setCursor(0), setSelection(null), playing.current && play(undefined, 0))}>
-            ⏮
-          </button>
-          <button className="play" title="재생 / 멈춤 (Space)" onClick={() => (playing.current ? stop() : play())}>
-            {playhead !== null ? "■" : "▶"}
-          </button>
-          <button className={recording ? "rec on" : "rec"} title="커서 자리에 녹음 (R)" onClick={() => void record()}>
-            ●
-          </button>
-          <button title="끝으로 (End)" onClick={() => (setCursor(n), setSelection(null), stop())}>
-            ⏭
-          </button>
-          <button aria-pressed={loop} title="반복 재생 (L)" onClick={() => setLoop(!loop)}>
-            🔁
-          </button>
-          <div className="clock">{timeLabel(pos / rate, true)}</div>
-          <div className="sel-info">
-            <span>시작</span>
-            <b>{timeLabel((selection?.start ?? cursor) / rate, true)}</b>
-            <span>끝</span>
-            <b>{timeLabel((selection?.end ?? cursor) / rate, true)}</b>
-            <span>길이</span>
-            <b>{timeLabel((selection ? selection.end - selection.start : 0) / rate, true)}</b>
-          </div>
-          <span className="spacer" />
-          <div className="view-buttons">
-            <button title="확대 (=)" onClick={() => zoom(0.5)}>
-              ＋
+      {mode === "multi" ? (
+        <MultitrackView mt={mt} meter={<Meter getLevels={mt.getLevels} />} />
+      ) : (
+        <div className="sound-stage">
+          <div className="transport">
+            <button title="처음으로 (Home)" onClick={() => (setCursor(0), setSelection(null), playing.current && play(undefined, 0))}>
+              ⏮
             </button>
-            <button title="축소 (-)" onClick={() => zoom(2)}>
-              －
+            <button className="play" title="재생 / 멈춤 (Space)" onClick={() => (playing.current ? stop() : play())}>
+              {playhead !== null ? "■" : "▶"}
             </button>
-            <button title="전체 보기 (\)" onClick={zoomFit}>
-              ⤢
+            <button className={recording ? "rec on" : "rec"} title="커서 자리에 녹음 (R)" onClick={() => void record()}>
+              ●
             </button>
-            <button aria-pressed={spectral} title="스펙트럼 보기 (Shift+D)" onClick={() => setSpectral(!spectral)}>
-              🌈
+            <button title="끝으로 (End)" onClick={() => (setCursor(n), setSelection(null), stop())}>
+              ⏭
             </button>
-            {live && rack.length > 0 && <span className="live-badge">🎛 랙 켜짐</span>}
-          </div>
-        </div>
-        <div className="sound-wave">
-          {n ? (
-            <Wave
-              sound={sound}
-              view={view}
-              setView={setView}
-              selection={selection}
-              cursor={cursor}
-              playhead={playhead}
-              markers={markers}
-              spectral={spectral}
-              onSelect={onSelect}
-              onMarkerMove={onMarkerMove}
-            />
-          ) : (
-            <div className="sound-empty">
-              <p className="big">🌊 소리를 넣어 주세요</p>
-              <p>소리 파일을 끌어다 놓거나, Ctrl+O 로 열거나, ● 로 녹음하세요.</p>
-              <div className="empty-buttons">
-                <button className="suite-button" onClick={() => void open(true)}>
-                  📂 파일 열기
-                </button>
-                <button className="suite-button ghost" onClick={() => void record()}>
-                  ● 녹음
-                </button>
-                <button className="suite-button ghost" onClick={() => setSfxOpen(true)}>
-                  🎮 효과음 만들기
-                </button>
-              </div>
+            <button aria-pressed={loop} title="반복 재생 (L)" onClick={() => setLoop(!loop)}>
+              🔁
+            </button>
+            <div className="clock">{timeLabel(pos / rate, true)}</div>
+            <div className="sel-info">
+              <span>시작</span>
+              <b>{timeLabel((selection?.start ?? cursor) / rate, true)}</b>
+              <span>끝</span>
+              <b>{timeLabel((selection?.end ?? cursor) / rate, true)}</b>
+              <span>길이</span>
+              <b>{timeLabel((selection ? selection.end - selection.start : 0) / rate, true)}</b>
             </div>
-          )}
+            <span className="spacer" />
+            <div className="view-buttons">
+              <button title="확대 (=)" onClick={() => zoom(0.5)}>
+                ＋
+              </button>
+              <button title="축소 (-)" onClick={() => zoom(2)}>
+                －
+              </button>
+              <button title="전체 보기 (\)" onClick={zoomFit}>
+                ⤢
+              </button>
+              <button aria-pressed={spectral} title="스펙트럼 보기 (Shift+D)" onClick={() => setSpectral(!spectral)}>
+                🌈
+              </button>
+              {live && rack.length > 0 && <span className="live-badge">🎛 랙 켜짐</span>}
+            </div>
+          </div>
+          <div className="sound-wave">
+            {n ? (
+              <Wave
+                sound={sound}
+                view={view}
+                setView={setView}
+                selection={selection}
+                cursor={cursor}
+                playhead={playhead}
+                markers={markers}
+                spectral={spectral}
+                onSelect={onSelect}
+                onMarkerMove={onMarkerMove}
+              />
+            ) : (
+              <div className="sound-empty">
+                <p className="big">🌊 소리를 넣어 주세요</p>
+                <p>소리 파일을 끌어다 놓거나, Ctrl+O 로 열거나, ● 로 녹음하세요.</p>
+                <div className="empty-buttons">
+                  <button className="suite-button" onClick={() => void open(true)}>
+                    📂 파일 열기
+                  </button>
+                  <button className="suite-button ghost" onClick={() => void record()}>
+                    ● 녹음
+                  </button>
+                  <button className="suite-button ghost" onClick={() => setSfxOpen(true)}>
+                    🎮 효과음 만들기
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          <Meter getLevels={getLevels} />
         </div>
-        <Meter getLevels={getLevels} />
-      </div>
+      )}
       {dialog?.kind === "params" && (
         <ParamDialog
           spec={dialog.spec}
@@ -1268,7 +1340,7 @@ export function App() {
       {dialog?.kind === "export" && (
         <ExportDialog sound={sound} selection={selection} initial={exportOpts} onClose={() => setDialog(null)} onExport={(o) => void exportWav(o, true)} />
       )}
-      <CommandSearch open={searchOpen} commands={menuCommands(menus)} onClose={() => setSearchOpen(false)} />
+      <CommandSearch open={searchOpen} commands={menuCommands(shownMenus)} onClose={() => setSearchOpen(false)} />
       <Toast message={toast} />
       <Tour steps={TOUR_STEPS} open={tour.open} onFinish={tour.finish} />
     </AppFrame>
