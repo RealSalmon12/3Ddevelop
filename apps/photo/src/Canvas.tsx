@@ -1,17 +1,37 @@
 import { useEffect, useRef } from "react";
 import type { Layer, PhotoDoc, ShapeKind } from "./model";
-import { Stroke, bucketFill, drawGradient, localSelection, type Brush, type GradientKind } from "./paint";
+import { Stroke, bucketFill, drawGradient, localSelection, retouchSource, type Brush, type GradientKind, type RetouchKind, type StrokeMode } from "./paint";
 import { ctx2d, pixels, putCanvas, createCanvas } from "./pixels";
 import { pixelTarget, replaceLayer, replaceTarget, type PixelTarget } from "./ops";
 import { flatten, hitLayer, layerCorners, renderDoc, toLayer, type LiveOverrides } from "./render";
 import { floodRegion, selectFromAlpha, selectPolygon, selectShape, type SelectMode, type Selection } from "./selection";
 
-export type ToolId = "move" | "marquee" | "lasso" | "wand" | "crop" | "eyedropper" | "brush" | "eraser" | "clone" | "bucket" | "gradient" | "text" | "shape" | "hand" | "zoom";
+export type ToolId =
+  | "move"
+  | "marquee"
+  | "lasso"
+  | "wand"
+  | "crop"
+  | "eyedropper"
+  | "brush"
+  | "eraser"
+  | "clone"
+  | "heal"
+  | "retouch"
+  | "bucket"
+  | "gradient"
+  | "text"
+  | "shape"
+  | "hand"
+  | "zoom";
 
 export interface ToolOptions {
   brush: Brush;
   eraser: Brush;
   clone: Brush;
+  heal: Brush;
+  retouch: Brush;
+  retouchKind: RetouchKind;
   marquee: "rect" | "ellipse";
   feather: number;
   wandTolerance: number;
@@ -29,6 +49,9 @@ export const DEFAULT_OPTIONS: ToolOptions = {
   brush: { size: 30, hardness: 80, opacity: 100 },
   eraser: { size: 40, hardness: 60, opacity: 100 },
   clone: { size: 40, hardness: 50, opacity: 100 },
+  heal: { size: 30, hardness: 70, opacity: 100 },
+  retouch: { size: 60, hardness: 30, opacity: 50 },
+  retouchKind: "dodge",
   marquee: "rect",
   feather: 0,
   wandTolerance: 32,
@@ -77,7 +100,11 @@ interface Props {
 }
 
 const HANDLE = 8;
-const PAINT_TOOLS: ToolId[] = ["brush", "eraser", "clone"];
+const PAINT_TOOLS: ToolId[] = ["brush", "eraser", "clone", "heal", "retouch"];
+
+/** 붓을 쓰는 도구의 붓 설정 */
+export const brushOf = (tool: ToolId, o: ToolOptions): Brush =>
+  tool === "eraser" ? o.eraser : tool === "clone" ? o.clone : tool === "heal" ? o.heal : tool === "retouch" ? o.retouch : o.brush;
 
 const luma = (hex: string) => {
   const n = parseInt(hex.slice(1), 16);
@@ -304,7 +331,7 @@ export function PhotoCanvas(props: Props) {
 
       // 붓 크기 동그라미
       if (mouse && PAINT_TOOLS.includes(p.tool) && !space) {
-        const b = p.tool === "brush" ? p.options.brush : p.tool === "eraser" ? p.options.eraser : p.options.clone;
+        const b = brushOf(p.tool, p.options);
         const r = Math.max(1, (b.size / 2) * s);
         ctx.beginPath();
         ctx.arc(ox + mouse.x * s, oy + mouse.y * s, r, 0, Math.PI * 2);
@@ -415,7 +442,9 @@ export function PhotoCanvas(props: Props) {
         }
         case "brush":
         case "eraser":
-        case "clone": {
+        case "clone":
+        case "heal":
+        case "retouch": {
           if (p.tool === "clone" && e.altKey) {
             p.onCloneSource(pt);
             return;
@@ -431,14 +460,18 @@ export function PhotoCanvas(props: Props) {
           }
           const t = target();
           if (!t) return;
+          if (t.kind === "mask" && (p.tool === "heal" || p.tool === "retouch")) {
+            p.onNotify("마스크가 아니라 레이어 그림을 고른 뒤 써 주세요.");
+            return;
+          }
           const base = pixels(t.src);
           if (!base) return;
           const m = t.matrix;
           const localPerDoc = 1 / Math.hypot(m.a, m.b);
           const sel = localSelection(p.selection?.canvas ?? null, m, base.width, base.height);
-          let mode: "paint" | "erase" | "clone" = p.tool === "brush" ? "paint" : p.tool === "eraser" ? "erase" : "clone";
+          let mode: StrokeMode = p.tool === "brush" ? "paint" : p.tool === "eraser" ? "erase" : p.tool === "heal" ? "heal" : p.tool === "retouch" ? "effect" : "clone";
           let color = p.fg;
-          if (t.kind === "mask" && mode !== "clone") {
+          if (t.kind === "mask" && (mode === "paint" || mode === "erase")) {
             // 마스크: 검정으로 칠하면 숨기고, 흰색이면 보이게. 지우개는 배경색으로 칠한다.
             const c = mode === "erase" ? p.bg : p.fg;
             mode = luma(c) < 128 ? "erase" : "paint";
@@ -454,8 +487,14 @@ export function PhotoCanvas(props: Props) {
             const b = m.inverse().transformPoint(new DOMPoint(pt.x, pt.y));
             offset = { dx: a.x - b.x, dy: a.y - b.y };
           }
-          const brush = p.tool === "brush" ? p.options.brush : p.tool === "eraser" ? p.options.eraser : p.options.clone;
-          const stroke = new Stroke(base, mode, color, brush, localPerDoc, sel, offset);
+          const brush = brushOf(p.tool, p.options);
+          let effect: HTMLCanvasElement | null = null;
+          if (p.tool === "retouch") {
+            // Alt: 닷지 ↔ 번
+            const kind = e.altKey && p.options.retouchKind === "dodge" ? "burn" : e.altKey && p.options.retouchKind === "burn" ? "dodge" : p.options.retouchKind;
+            effect = retouchSource(base, kind, brush.size * localPerDoc);
+          }
+          const stroke = new Stroke(base, mode, color, brush, localPerDoc, sel, offset, effect);
           // Shift+클릭: 지난 붓질 끝에서 여기까지 직선
           if (e.shiftKey && lastPaint) {
             const from = m.inverse().transformPoint(new DOMPoint(lastPaint.x, lastPaint.y));
@@ -619,7 +658,7 @@ export function PhotoCanvas(props: Props) {
         }
         case "paint": {
           lastPaint = mouse;
-          const result = d.stroke.result();
+          const result = d.stroke.finish();
           live.delete(d.key);
           const id = putCanvas(result);
           p.onSet((doc) => replaceTarget(doc, d.target.layer.id, d.target.kind, id));

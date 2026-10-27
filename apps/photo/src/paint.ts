@@ -12,7 +12,31 @@ export interface Brush {
   opacity: number;
 }
 
-export type StrokeMode = "paint" | "erase" | "clone";
+/** heal: 지나간 곳을 주변으로 메운다 (스팟 복구). effect: 미리 만든 그림(닷지, 번, 흐림 …)을 지나간 곳에만 */
+export type StrokeMode = "paint" | "erase" | "clone" | "heal" | "effect";
+
+export type RetouchKind = "dodge" | "burn" | "blur" | "sharpen";
+
+export const RETOUCH: { kind: RetouchKind; label: string }[] = [
+  { kind: "dodge", label: "밝게 (닷지)" },
+  { kind: "burn", label: "어둡게 (번)" },
+  { kind: "blur", label: "흐리게" },
+  { kind: "sharpen", label: "선명하게" },
+];
+
+/** 닷지·번·흐림·선명 붓이 칠할 그림: 레이어 전체를 한 번 바꿔 두고, 붓이 지나간 곳만 보이게 한다 */
+export function retouchSource(base: HTMLCanvasElement, kind: RetouchKind, brushSize: number) {
+  if (kind === "sharpen") return applyFilter(base, "sharpen", 120, null);
+  const out = createCanvas(base.width, base.height);
+  const g = ctx2d(out);
+  g.filter = kind === "dodge" ? "brightness(135%)" : kind === "burn" ? "brightness(70%) saturate(115%)" : `blur(${Math.max(2, brushSize / 10)}px)`;
+  g.drawImage(base, 0, 0);
+  // 흐림이 가장자리 투명을 끌어오지 않게 원래 모양으로 자른다
+  g.filter = "none";
+  g.globalCompositeOperation = "destination-in";
+  g.drawImage(base, 0, 0);
+  return out;
+}
 
 /** 선택 영역(그림 좌표)을 레이어 픽셀 공간으로 옮긴 알파 그림 */
 export function localSelection(sel: HTMLCanvasElement | null, toDoc: DOMMatrix, width: number, height: number) {
@@ -80,12 +104,14 @@ export class Stroke {
     private sel: HTMLCanvasElement | null,
     /** 도장: 원본 위치 - 칠하는 위치 */
     private cloneOffset: { dx: number; dy: number } | null = null,
+    /** effect 모드에서 붓이 지나간 곳에 보일 그림 */
+    private effect: HTMLCanvasElement | null = null,
   ) {
     this.stroke = createCanvas(base.width, base.height);
     this.sg = ctx2d(this.stroke);
     this.working = createCanvas(base.width, base.height);
     this.diameter = Math.max(1, brush.size * localPerDoc);
-    this.dab = dabImage(this.diameter, brush.hardness, mode === "paint" ? color : "#000000");
+    this.dab = dabImage(this.diameter, brush.hardness, mode === "paint" ? color : mode === "heal" ? "#ff4d6d" : "#000000");
   }
 
   add(x: number, y: number) {
@@ -128,20 +154,145 @@ export class Stroke {
     const g = ctx2d(this.working);
     g.globalCompositeOperation = "copy";
     g.drawImage(this.base, 0, 0);
-    let s = this.stroke;
-    if (this.sel) {
-      s = cloneCanvas(this.stroke);
+    let s = this.masked();
+    if (this.mode === "effect" && this.effect) {
+      s = cloneCanvas(this.effect);
       const m = ctx2d(s);
       m.globalCompositeOperation = "destination-in";
-      m.drawImage(this.sel, 0, 0);
+      m.drawImage(this.masked(), 0, 0);
     }
-    g.globalAlpha = this.brush.opacity / 100;
+    // 스팟 복구는 붓을 떼면 메우고, 칠하는 동안은 지나간 곳을 반투명하게 보여 준다.
+    g.globalAlpha = this.mode === "heal" ? 0.5 : this.brush.opacity / 100;
     g.globalCompositeOperation = this.mode === "erase" ? "destination-out" : "source-over";
     g.drawImage(s, 0, 0);
     g.globalAlpha = 1;
     g.globalCompositeOperation = "source-over";
     return this.working;
   }
+
+  /** 선택 영역 안의 붓 자국 */
+  private masked() {
+    if (!this.sel) return this.stroke;
+    const s = cloneCanvas(this.stroke);
+    const m = ctx2d(s);
+    m.globalCompositeOperation = "destination-in";
+    m.drawImage(this.sel, 0, 0);
+    return s;
+  }
+
+  /** 붓을 뗐을 때 남길 그림 */
+  finish() {
+    if (this.mode !== "heal") return this.result();
+    return healArea(this.base, this.masked(), this.brush.opacity / 100);
+  }
+}
+
+/**
+ * 스팟 복구: 구멍(붓 자국)을 바깥 테두리부터 안쪽으로 이웃 색 평균으로 채우고, 여러 번 부드럽게 한 뒤
+ * 주변과 비슷한 잔무늬(노이즈)를 더한다. 붓 가장자리의 흐린 정도만큼 원래 그림과 섞는다.
+ */
+export function healArea(base: HTMLCanvasElement, mask: HTMLCanvasElement, opacity: number) {
+  const out = cloneCanvas(base);
+  const md = ctx2d(mask).getImageData(0, 0, mask.width, mask.height).data;
+  let x0 = mask.width;
+  let y0 = mask.height;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < mask.height; y++)
+    for (let x = 0; x < mask.width; x++)
+      if (md[(y * mask.width + x) * 4 + 3] > 8) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+  if (x1 < 0) return out;
+  const pad = 6;
+  x0 = Math.max(0, x0 - pad);
+  y0 = Math.max(0, y0 - pad);
+  x1 = Math.min(base.width - 1, x1 + pad);
+  y1 = Math.min(base.height - 1, y1 + pad);
+  const w = x1 - x0 + 1;
+  const h = y1 - y0 + 1;
+  const g = ctx2d(out);
+  const img = g.getImageData(x0, y0, w, h);
+  const px = img.data;
+  const n = w * h;
+  const alpha = new Float32Array(n);
+  const hole = new Uint8Array(n);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const a = md[((y + y0) * mask.width + x + x0) * 4 + 3] / 255;
+      alpha[y * w + x] = a;
+      hole[y * w + x] = a > 0.03 ? 1 : 0;
+    }
+  const orig = new Float32Array(n * 4);
+  const col = new Float32Array(n * 4);
+  for (let i = 0; i < n * 4; i++) orig[i] = col[i] = px[i];
+  // 1) 바깥부터 한 겹씩 채우기
+  const known = new Uint8Array(n);
+  for (let i = 0; i < n; i++) known[i] = hole[i] ? 0 : 1;
+  for (let pass = 0; pass < Math.max(w, h); pass++) {
+    const fill: number[] = [];
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        if (known[i]) continue;
+        let c = 0;
+        const acc = [0, 0, 0, 0];
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = x + dx;
+            const yy = y + dy;
+            if ((dx || dy) && xx >= 0 && yy >= 0 && xx < w && yy < h && known[yy * w + xx]) {
+              const j = (yy * w + xx) * 4;
+              acc[0] += col[j];
+              acc[1] += col[j + 1];
+              acc[2] += col[j + 2];
+              acc[3] += col[j + 3];
+              c++;
+            }
+          }
+        if (c) {
+          fill.push(i);
+          for (let k = 0; k < 4; k++) col[i * 4 + k] = acc[k] / c;
+        }
+      }
+    if (!fill.length) break;
+    for (const i of fill) known[i] = 1;
+  }
+  // 2) 줄무늬가 남지 않게 구멍 안만 여러 번 부드럽게
+  for (let it = 0; it < 40; it++)
+    for (let y = 1; y < h - 1; y++)
+      for (let x = 1; x < w - 1; x++) {
+        const i = y * w + x;
+        if (!hole[i]) continue;
+        for (let k = 0; k < 4; k++)
+          col[i * 4 + k] = (col[(i - 1) * 4 + k] + col[(i + 1) * 4 + k] + col[(i - w) * 4 + k] + col[(i + w) * 4 + k]) / 4;
+      }
+  // 3) 주변의 잔무늬 세기를 재서 비슷하게 더한다
+  let sum = 0;
+  let count = 0;
+  for (let y = 1; y < h - 1; y++)
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      if (hole[i] || hole[i - 1] || hole[i + 1] || hole[i - w] || hole[i + w]) continue;
+      const l = (j: number) => 0.3 * orig[j * 4] + 0.59 * orig[j * 4 + 1] + 0.11 * orig[j * 4 + 2];
+      sum += Math.abs(l(i) - (l(i - 1) + l(i + 1) + l(i - w) + l(i + w)) / 4);
+      count++;
+    }
+  const grain = count ? Math.min(30, (sum / count) * 1.2) : 0;
+  for (let i = 0; i < n; i++) {
+    const a = alpha[i] * opacity;
+    if (!a) continue;
+    const noise = (Math.random() - 0.5) * 2 * grain;
+    for (let k = 0; k < 4; k++) {
+      const v = col[i * 4 + k] + (k < 3 ? noise : 0);
+      px[i * 4 + k] = orig[i * 4 + k] * (1 - a) + v * a;
+    }
+  }
+  g.putImageData(img, x0, y0);
+  return out;
 }
 
 /** 페인트 통: 비슷한 색인 곳을 칠한다 */

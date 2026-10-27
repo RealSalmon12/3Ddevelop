@@ -52,7 +52,7 @@ import {
   resampleDoc,
   rotateDoc,
 } from "./ops";
-import { applyFilter, clearPixels, fillAll, FILTERS, opaqueBounds, type FilterKind } from "./paint";
+import { applyFilter, clearPixels, fillAll, FILTERS, opaqueBounds, RETOUCH, type FilterKind } from "./paint";
 import { LayersPanel, PropertiesPanel, setHistogramDoc, Histogram } from "./Panels";
 import { createCanvas, ctx2d, dataUrlToBlob, pixelsAsync, putBlank, putCanvas } from "./pixels";
 import { flatten, layerMatrix, layerToDocCanvas } from "./render";
@@ -76,6 +76,8 @@ const TOOLS: ToolDef[] = [
   { id: "brush", label: "브러시", icon: "🖌", key: "B", hint: "전경색으로 칠해요. [ ] 크기 · 숫자키 불투명도 · Shift+클릭 직선" },
   { id: "eraser", label: "지우개", icon: "◻", key: "E", hint: "픽셀을 지워요 (마스크에서는 배경색으로 칠해요)" },
   { id: "clone", label: "복제 도장", icon: "⎘", key: "S", hint: "Alt+클릭으로 원본을 찍고, 칠하면 그 부분을 복사해요 (잡티 지우기)" },
+  { id: "heal", label: "스팟 복구 브러시", icon: "✚", key: "J", hint: "잡티, 여드름, 전선 위를 칠하면 주변 색과 결로 자연스럽게 메워요" },
+  { id: "retouch", label: "닷지/번/흐림", icon: "🌓", key: "O", hint: "칠한 곳만 밝게, 어둡게, 흐리게, 선명하게 (Alt: 닷지 ↔ 번)" },
   { id: "bucket", label: "페인트 통", icon: "🪣", key: "G", hint: "비슷한 색 영역을 전경색으로 채워요" },
   { id: "gradient", label: "그레이디언트", icon: "▦", key: "Shift+G", hint: "끌어서 전경색 → 배경색으로 이어 칠해요 (마스크에서는 부드럽게 사라지게)" },
   { id: "text", label: "글자", icon: "T", key: "T", hint: "클릭한 곳에 글자를 넣어요. 글자를 누르면 고쳐요" },
@@ -486,7 +488,7 @@ export function App() {
     };
   }, [addPhoto]);
 
-  const brushKey = tool === "eraser" ? "eraser" : tool === "clone" ? "clone" : "brush";
+  const brushKey = tool === "eraser" ? "eraser" : tool === "clone" ? "clone" : tool === "heal" ? "heal" : tool === "retouch" ? "retouch" : "brush";
   const setBrush = (patch: Partial<ToolOptions["brush"]>) => setOptions((o) => ({ ...o, [brushKey]: { ...o[brushKey], ...patch } }));
 
   const pickTool = (id: ToolId) => {
@@ -522,6 +524,7 @@ export function App() {
           d: shift ? () => lastSelection.current && setSelection(lastSelection.current) : () => setSelection(null),
           i: shift ? () => setSelection(invertSelection(selection, doc.width, doc.height)) : alt ? () => setDialog({ kind: "imageSize" }) : adjustShortcut("invert"),
           j: () => void copyToLayer(shift),
+          g: alt ? toggleClip : undefined,
           e: shift ? () => history.set((d) => mergeVisible(d, false)) : () => mergeSelected(),
           l: adjustShortcut("levels"),
           m: adjustShortcut("curves"),
@@ -569,7 +572,7 @@ export function App() {
       }
       if (/^[0-9]$/.test(key)) {
         const v = key === "0" ? 100 : Number(key) * 10;
-        if (["brush", "eraser", "clone"].includes(tool)) setBrush({ opacity: v });
+        if (["brush", "eraser", "clone", "heal", "retouch"].includes(tool)) setBrush({ opacity: v });
         else if (selected) changeLayer({ ...selected, opacity: v / 100 });
         return;
       }
@@ -592,6 +595,14 @@ export function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
+
+  /** 클리핑 마스크: 고른 레이어를 바로 아래 레이어 모양 안에만 보이게 */
+  function toggleClip() {
+    if (!selected) return;
+    if (doc.layers[0]?.id === selected.id) return notify("맨 아래 레이어는 클리핑할 바탕이 없어요.");
+    changeLayer({ ...selected, clip: !selected.clip });
+    if (!selected.clip) notify("아래 레이어 모양 안에만 보여요. 사진 레이어를 글자 위에 두고 하면 글자 속에 사진이 들어가요.");
+  }
 
   function mergeSelected() {
     if (!selected) return;
@@ -659,6 +670,7 @@ export function App() {
         { label: "레이어 마스크: 모두 숨기기", disabled: !selected || !!selected?.mask || selected?.kind === "text" || selected?.kind === "shape", onSelect: doSelected((l) => (history.set((d) => addMask(d, l, null, true)), setEditMask(true))) },
         { label: "레이어 마스크 적용", disabled: selected?.kind !== "raster" || !selected.mask, onSelect: doSelected((l) => l.kind === "raster" && void applyMask(history.get(), l).then((d) => (history.set(d), setEditMask(false)))) },
         { label: "레이어 마스크 삭제", disabled: !selected?.mask, onSelect: doSelected((l) => (changeLayer({ ...l, mask: null }), setEditMask(false))) },
+        { label: selected?.clip ? "클리핑 마스크 풀기" : "클리핑 마스크 만들기 (아래 레이어 모양 안에만)", shortcut: "Ctrl+Alt+G", disabled: !selected || doc.layers[0]?.id === selected.id, onSelect: toggleClip },
         { label: "래스터화 (픽셀로 굳히기)", disabled: !selected || selected.kind === "adjust", onSelect: doSelected((l) => history.set((d) => rasterize(d, l))) },
         { label: "아래 레이어와 병합", shortcut: "Ctrl+E", disabled: !selected, onSelect: mergeSelected },
         { label: "보이는 레이어 병합", shortcut: "Ctrl+Shift+E", onSelect: () => history.set((d) => mergeVisible(d, false)) },
@@ -877,12 +889,22 @@ export function App() {
         <span className="ps-options-tool">
           {toolDef.icon} {toolDef.label}
         </span>
-        {["brush", "eraser", "clone"].includes(tool) && (
+        {["brush", "eraser", "clone", "heal", "retouch"].includes(tool) && (
           <>
             <NumberField label="크기" value={brush.size} min={1} max={1000} unit="px" onChange={(v) => setBrush({ size: v })} />
             <NumberField label="경도" value={brush.hardness} min={0} max={100} unit="%" onChange={(v) => setBrush({ hardness: v })} />
             <NumberField label="불투명도" value={brush.opacity} min={1} max={100} unit="%" onChange={(v) => setBrush({ opacity: v })} />
             {tool === "clone" && <span className="ps-hint">{cloneSource ? "Alt+클릭: 원본 다시 찍기" : "Alt+클릭으로 원본을 먼저 찍어요"}</span>}
+            {tool === "heal" && <span className="ps-hint">지울 곳보다 조금 크게 칠하고 손을 떼요</span>}
+            {tool === "retouch" && (
+              <span className="ps-seg">
+                {RETOUCH.map((r) => (
+                  <button key={r.kind} aria-pressed={options.retouchKind === r.kind} onClick={() => setOptions({ ...options, retouchKind: r.kind })}>
+                    {r.label}
+                  </button>
+                ))}
+              </span>
+            )}
           </>
         )}
         {(tool === "marquee" || tool === "lasso") && (

@@ -263,6 +263,68 @@ export function drawLayer(target: CanvasRenderingContext2D, layer: Layer, doc: P
   target.restore();
 }
 
+/** 보정 레이어: 지금까지 그린 그림의 픽셀을 바꾼다 (픽셀 좌표 그대로) */
+function applyAdjustLayer(target: CanvasRenderingContext2D, layer: Layer & { kind: "adjust" }, doc: PhotoDoc, opts: RenderOptions) {
+  if (layer.opacity <= 0) return;
+  const t = target.getTransform();
+  const w = Math.round(doc.width * t.a);
+  const h = Math.round(doc.height * t.d);
+  if (w < 1 || h < 1) return;
+  const ox = Math.round(t.e);
+  const oy = Math.round(t.f);
+  const data = target.getImageData(ox, oy, w, h);
+  let mask: Uint8ClampedArray | null = null;
+  const mc = maskCanvas(layer, opts);
+  if (mc) {
+    const tmp = createCanvas(w, h);
+    ctx2d(tmp).drawImage(mc, 0, 0, w, h);
+    mask = ctx2d(tmp).getImageData(0, 0, w, h).data;
+  }
+  applyAdjustment(data, layer, mask);
+  target.putImageData(data, ox, oy);
+}
+
+/**
+ * 클리핑 그룹: 바탕 레이어를 따로 그린 뒤, 위에 클리핑된 레이어들을 바탕 모양 안에만 겹치고,
+ * 그 결과를 바탕의 불투명도와 혼합 모드로 합친다 (포토샵과 같은 방식).
+ */
+function drawClipGroup(target: CanvasRenderingContext2D, base: Layer, clipped: Layer[], doc: PhotoDoc, opts: RenderOptions) {
+  const W = target.canvas.width;
+  const H = target.canvas.height;
+  const t = target.getTransform();
+  const group = createCanvas(W, H);
+  const gg = ctx2d(group);
+  gg.setTransform(t);
+  drawLayer(gg, { ...base, opacity: 1, blend: "source-over" }, doc, opts);
+  const shape = createCanvas(W, H);
+  ctx2d(shape).drawImage(group, 0, 0);
+  for (const layer of clipped) {
+    if (layer.id === opts.skip || !layer.visible) continue;
+    if (layer.kind === "adjust") {
+      applyAdjustLayer(gg, layer, doc, opts);
+      continue;
+    }
+    const tmp = createCanvas(W, H);
+    const tg = ctx2d(tmp);
+    tg.setTransform(t);
+    drawLayer(tg, { ...layer, blend: "source-over" }, doc, opts);
+    tg.setTransform(1, 0, 0, 1, 0, 0);
+    tg.globalCompositeOperation = "destination-in";
+    tg.drawImage(shape, 0, 0);
+    gg.save();
+    gg.setTransform(1, 0, 0, 1, 0, 0);
+    gg.globalCompositeOperation = layer.blend === "source-over" ? "source-atop" : layer.blend;
+    gg.drawImage(tmp, 0, 0);
+    gg.restore();
+  }
+  target.save();
+  target.setTransform(1, 0, 0, 1, 0, 0);
+  target.globalAlpha = base.opacity;
+  target.globalCompositeOperation = base.blend;
+  target.drawImage(group, 0, 0);
+  target.restore();
+}
+
 /** 문서 전체를 그림 크기 캔버스에 합성한다 */
 export function renderDoc(target: CanvasRenderingContext2D, doc: PhotoDoc, opts: RenderOptions = {}) {
   target.save();
@@ -270,30 +332,22 @@ export function renderDoc(target: CanvasRenderingContext2D, doc: PhotoDoc, opts:
     target.fillStyle = doc.background;
     target.fillRect(0, 0, doc.width, doc.height);
   }
-  for (const layer of doc.layers) {
-    if (layer.id === opts.skip || !layer.visible) continue;
-    if (layer.kind === "adjust") {
-      if (layer.opacity <= 0) continue;
-      // 보정 레이어: 지금까지 그린 그림의 픽셀을 바꾼다 (픽셀 좌표 그대로)
-      const t = target.getTransform();
-      const w = Math.round(doc.width * t.a);
-      const h = Math.round(doc.height * t.d);
-      if (w < 1 || h < 1) continue;
-      const ox = Math.round(t.e);
-      const oy = Math.round(t.f);
-      const data = target.getImageData(ox, oy, w, h);
-      let mask: Uint8ClampedArray | null = null;
-      const mc = maskCanvas(layer, opts);
-      if (mc) {
-        const tmp = createCanvas(w, h);
-        ctx2d(tmp).drawImage(mc, 0, 0, w, h);
-        mask = ctx2d(tmp).getImageData(0, 0, w, h).data;
-      }
-      applyAdjustment(data, layer, mask);
-      target.putImageData(data, ox, oy);
+  const layers = doc.layers;
+  for (let i = 0; i < layers.length; i++) {
+    const layer = layers[i];
+    // 바로 위에 붙은 클리핑 레이어들
+    let j = i + 1;
+    while (j < layers.length && layers[j].clip) j++;
+    const clipped = layer.kind === "adjust" ? [] : layers.slice(i + 1, j);
+    if (clipped.length) {
+      // 바탕이 숨으면 클리핑된 레이어도 함께 숨는다
+      if (layer.id !== opts.skip && layer.visible) drawClipGroup(target, layer, clipped, doc, opts);
+      i = j - 1;
       continue;
     }
-    drawLayer(target, layer, doc, opts);
+    if (layer.id === opts.skip || !layer.visible) continue;
+    if (layer.kind === "adjust") applyAdjustLayer(target, layer, doc, opts);
+    else drawLayer(target, layer, doc, opts);
   }
   target.restore();
 }
