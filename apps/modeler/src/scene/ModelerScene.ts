@@ -51,6 +51,8 @@ export interface ObjectData {
   mirror?: Axis[];
   /** 배열 모디파이어: 같은 모양을 늘어놓는다 */
   array?: ArrayModifier;
+  /** 두께 모디파이어: 면 안쪽으로 이만큼 두껍게 */
+  solidify?: number;
   /** 면 이어 보이기: auto 는 완만한 곳만 부드럽게, smooth 는 모두 부드럽게, flat 은 모두 각지게 */
   smooth?: SmoothMode;
   /** 키프레임 애니메이션 (프레임 순서) */
@@ -766,6 +768,7 @@ export class ModelerScene {
     mesh.userData.subdivision = undefined;
     mesh.userData.mirror = undefined;
     mesh.userData.array = undefined;
+    mesh.userData.solidify = undefined;
     rebuildGeometry(mesh);
     if (this.editingId) this.editSelection = emptySelection(this.editSelection.mode);
     this.editVersion++;
@@ -791,6 +794,7 @@ export class ModelerScene {
     a.userData.subdivision = undefined;
     a.userData.mirror = undefined;
     a.userData.array = undefined;
+    a.userData.solidify = undefined;
     rebuildGeometry(a);
     if (keepCutter) b.visible = false;
     else this.disposeMesh(otherId);
@@ -1007,6 +1011,7 @@ function toInfo(mesh: THREE.Mesh): ObjectInfo {
     ...(mesh.userData.subdivision ? { subdivision: mesh.userData.subdivision as number } : {}),
     ...(mesh.userData.mirror ? { mirror: [...(mesh.userData.mirror as Axis[])] } : {}),
     ...(mesh.userData.array ? { array: { ...(mesh.userData.array as ArrayModifier) } } : {}),
+    ...(mesh.userData.solidify ? { solidify: mesh.userData.solidify as number } : {}),
     ...(mesh.userData.smooth && mesh.userData.smooth !== "auto" ? { smooth: mesh.userData.smooth as SmoothMode } : {}),
     ...(mesh.userData.keys ? { keys: cloneKeys(mesh.userData.keys as Keyframe[]) } : {}),
   };
@@ -1020,12 +1025,13 @@ function modifiersOf(mesh: THREE.Mesh): Modifiers {
   return {
     mirror: mesh.userData.mirror as Axis[] | undefined,
     array: mesh.userData.array as ArrayModifier | undefined,
+    solidify: mesh.userData.solidify as number | undefined,
     subdivision: mesh.userData.subdivision as number | undefined,
   };
 }
 
 const modifierKey = (mesh: THREE.Mesh) =>
-  `${mesh.userData.subdivision ?? 0}/${mesh.userData.smooth ?? "auto"}/${(mesh.userData.mirror as Axis[] | undefined)?.join("") ?? ""}/${JSON.stringify(mesh.userData.array ?? null)}`;
+  `${mesh.userData.subdivision ?? 0}/${mesh.userData.smooth ?? "auto"}/${(mesh.userData.mirror as Axis[] | undefined)?.join("") ?? ""}/${JSON.stringify(mesh.userData.array ?? null)}/${mesh.userData.solidify ?? 0}`;
 
 function rebuildGeometry(mesh: THREE.Mesh) {
   const poly = mesh.userData.poly as PolyMesh;
@@ -1063,6 +1069,7 @@ function applyData(mesh: THREE.Mesh, data: ObjectInfo) {
       data.array && data.array.count > 1
         ? { count: Math.max(2, Math.min(64, Math.round(data.array.count))), offset: data.array.offset.map((v) => Number(v) || 0) as Vec3 }
         : undefined;
+    mesh.userData.solidify = Number.isFinite(data.solidify) && data.solidify ? Math.max(-10, Math.min(10, data.solidify)) : undefined;
   }
   // 매끈하게 단계나 면 이어 보이기가 바뀌었을 때만 다시 만든다.
   if (mesh.userData.geometryKey !== modifierKey(mesh)) rebuildGeometry(mesh);

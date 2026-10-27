@@ -261,10 +261,35 @@ function SmoothRows({ model, item }: { model: ModelerScene; item: ObjectData }) 
           )}
         </div>
       </div>
-      {(level > 0 || !!item.mirror?.length || !!item.array) && (
+      <div className="prop-row">
+        <span className="prop-label" title="얇은 판이나 열린 모양에 두께를 줘요. 컵, 그릇, 옷, 벽 만들 때 좋아요. 닫힌 모양은 속이 빈 껍데기가 돼요 (블렌더의 Solidify 모디파이어).">
+          두께
+        </span>
+        <div className="prop-inline">
+          <input
+            className="prop-count"
+            type="number"
+            min={0}
+            max={10}
+            step={0.01}
+            value={item.solidify ?? 0}
+            title="두께 (0 이면 끔)"
+            onChange={(e) => {
+              const v = Math.max(0, Math.min(10, Number(e.target.value) || 0));
+              model.update(item.id, { solidify: v || undefined });
+            }}
+          />
+          {[0.02, 0.05, 0.1].map((v) => (
+            <button key={v} className="prop-toggle num" aria-pressed={item.solidify === v} title={`두께 ${v}`} onClick={() => model.update(item.id, { solidify: item.solidify === v ? undefined : v })}>
+              {v}
+            </button>
+          ))}
+        </div>
+      </div>
+      {(level > 0 || !!item.mirror?.length || !!item.array || !!item.solidify) && (
         <div className="prop-row">
           <span className="prop-label" />
-          <button className="prop-small-button" title="지금 보이는 모양(대칭, 배열, 매끈하게)을 진짜 점, 선, 면으로 바꿔요. 그 뒤로 하나하나 고칠 수 있어요." onClick={() => model.applySubdivision()}>
+          <button className="prop-small-button" title="지금 보이는 모양(대칭, 배열, 두께, 매끈하게)을 진짜 점, 선, 면으로 바꿔요. 그 뒤로 하나하나 고칠 수 있어요." onClick={() => model.applySubdivision()}>
             모디파이어 적용
           </button>
         </div>
