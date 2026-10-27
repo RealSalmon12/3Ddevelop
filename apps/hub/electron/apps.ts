@@ -54,7 +54,7 @@ ConvertTo-Json $out -Compress`;
   for (const app of installable) {
     const entry = registry[app.guid];
     const programs = process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, "Programs");
-    const folders = [entry?.loc, programs && join(programs, app.name), programs && app.oldFolder && join(programs, app.oldFolder)];
+    const folders = [entry?.loc, programs && join(programs, app.name), ...(programs ? (app.oldFolders ?? []).map((f) => join(programs, f)) : [])];
     const exe = folders.filter(Boolean).map((f) => join(f!, app.executable)).find((p) => existsSync(p));
     if (exe) found[app.id] = { exe, build: entry ? buildFromVersion(entry.ver) : 0 };
   }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { PixelDoc } from "./doc/PixelDoc";
 import type { Example } from "./doc/examples";
 
-const PROJECT_FILTER = { name: "도트 아틀리에 파일", extensions: ["npixel"] };
+const PROJECT_FILTER = { name: "바코 눈꽃 파일", extensions: ["npixel"] };
 const IMAGE_FILTER = { name: "그림 파일", extensions: ["png", "jpg", "jpeg", "gif", "bmp", "webp"] };
 
 const baseName = (path: string) => path.split(/[\\/]/).pop()!.replace(/\.[^.]+$/, "");
@@ -54,7 +54,7 @@ export function useFile(doc: PixelDoc, dirty: boolean, notify: (message: string)
   const name = filePath ? baseName(filePath) : "제목 없음";
 
   useEffect(() => {
-    document.title = `${dirty ? "● " : ""}${name} - 도트 아틀리에`;
+    document.title = `${dirty ? "● " : ""}${name} - 바코 눈꽃`;
     window.suite?.window.setDirty(dirty);
   }, [name, dirty]);
 

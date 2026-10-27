@@ -26,7 +26,7 @@ export interface AIStatus {
 }
 
 export interface FileFilter {
-  /** 파일 종류 이름 (예: "스컬프트 3D 프로젝트") */
+  /** 파일 종류 이름 (예: "바코 빙산 프로젝트") */
   name: string;
   /** 점 없는 확장자 (예: ["nmodel"]) */
   extensions: string[];

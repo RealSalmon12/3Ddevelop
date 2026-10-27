@@ -16,7 +16,7 @@ import {
 export interface SuiteAppOptions {
   /** 앱 고유 ID (예: "modeler"). Windows 작업 표시줄 구분에 쓰인다. */
   appId: string;
-  /** 창 제목에 보이는 이름 (예: "스컬프트 3D") */
+  /** 창 제목에 보이는 이름 (예: "바코 빙산") */
   title: string;
   /** 빌드된 preload 파일의 절대 경로 */
   preloadPath: string;
