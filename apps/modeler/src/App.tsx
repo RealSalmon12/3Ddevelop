@@ -24,6 +24,7 @@ import { PropertiesPanel } from "./panels/PropertiesPanel";
 import { AI_SYSTEM, AI_TOOL, applyPlan, sceneContext, type ScenePlan } from "./scene/aiModeling";
 import { EXPORT_FORMATS, triangleCount } from "./scene/exporters";
 import { EXAMPLES } from "./scene/examples";
+import { useAutosave } from "./scene/useAutosave";
 import { ModelerScene } from "./scene/ModelerScene";
 import { SHAPES } from "./scene/shapes";
 import { EFFECTS } from "./effects/particles";
@@ -97,6 +98,7 @@ export function App() {
   const file = useProjectFile(model, dirty, notify);
   const tour = useTour("modeler");
   const updater = useUpdater(notify);
+  useAutosave(model, dirty, notify);
   const onViewportReady = useCallback((v: ViewportRenderer | null) => setViewport(v), []);
 
   useEffect(() => viewport?.setTool(tool), [viewport, tool]);

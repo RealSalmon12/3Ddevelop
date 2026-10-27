@@ -304,6 +304,13 @@ export class ModelerScene {
     return JSON.stringify(doc);
   }
 
+  /** 자동 저장본을 불러온다. 아직 파일로 저장한 적 없는 작업이므로 '저장 안 됨' 상태로 둔다. */
+  recover(text: string) {
+    this.load(text);
+    this.saved = "";
+    this.refresh();
+  }
+
   /** 파일 내용을 불러와 새 장면으로 바꾼다. 실행 취소 기록은 비운다. */
   load(text: string) {
     const doc = JSON.parse(text) as SceneDocument;

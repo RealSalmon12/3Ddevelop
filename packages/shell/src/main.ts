@@ -1,5 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
-import { readFile, writeFile } from "node:fs/promises";
+import { rmSync } from "node:fs";
+import { readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { aiStatus, askAI, setApiKey } from "./ai";
 import { checkForUpdate, installUpdate, type UpdateSource } from "./updater";
 import {
@@ -122,6 +124,18 @@ export function startSuiteApp(options: SuiteAppOptions) {
   ipcMain.handle(IPC.aiSetKey, (_event, key: string) => setApiKey(key));
   ipcMain.handle(IPC.fileSave, handleSaveFile);
   ipcMain.handle(IPC.fileOpen, handleOpenFile);
+  const autosavePath = () => join(app.getPath("userData"), `autosave-${options.appId}.json`);
+  ipcMain.handle(IPC.autosaveRead, async () => {
+    try {
+      return JSON.parse(await readFile(autosavePath(), "utf8"));
+    } catch {
+      return null;
+    }
+  });
+  ipcMain.handle(IPC.autosaveWrite, async (_event, text: string | null) => {
+    if (text === null) await rm(autosavePath(), { force: true });
+    else await writeFile(autosavePath(), JSON.stringify({ time: Date.now(), text }));
+  });
   ipcMain.handle(IPC.updateCheck, () =>
     options.updates ? checkForUpdate(options.updates) : { ok: true, current: 0, update: null, dev: true },
   );
@@ -129,6 +143,8 @@ export function startSuiteApp(options: SuiteAppOptions) {
 
   app.whenReady().then(() => {
     const win = createWindow(options);
+    // 창이 정상적으로 닫히면 자동 저장본은 필요 없다. 앱이 바로 끝나므로 기다리지 않고 지운다.
+    win.on("closed", () => rmSync(autosavePath(), { force: true }));
     app.on("second-instance", () => {
       if (win.isMinimized()) win.restore();
       win.focus();
