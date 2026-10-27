@@ -17,7 +17,16 @@ packages/
 새 프로그램(예: 사진 편집기)은 `apps/` 아래에 폴더를 하나 더 만들고 `@suite/shell` 과 `@suite/ui` 를 가져다 쓰면 됩니다.
 제품군 이름은 `packages/ui/src/brand.ts` 한 곳에서 바꿀 수 있습니다.
 
-## Windows 에서 실행하기
+## 설치 파일로 설치하기 (가장 쉬움)
+
+[Releases](https://github.com/RealSalmon12/3Ddevelop/releases/latest) 에서 `NugunaStudio-3D-Modeler-Setup-….exe` 를 받아 실행하면 됩니다.
+코드가 `main` 에 병합될 때마다 GitHub Actions 가 새 설치 파일을 자동으로 만들어 올려요.
+
+> 아직 코드 서명을 하지 않아서 처음 실행할 때 "Windows의 PC 보호" 창이 뜰 수 있어요. **추가 정보 → 실행** 을 누르면 됩니다.
+
+직접 설치 파일을 만들려면 Windows 에서 `npm run dist:modeler` 를 실행하세요. `apps/modeler/release/` 에 .exe 가 생겨요.
+
+## Windows 에서 개발 모드로 실행하기
 
 1. [Node.js](https://nodejs.org/) LTS 버전(22 이상)을 설치합니다.
 2. 이 폴더에서 명령 프롬프트나 PowerShell 을 열고 한 번만 실행합니다.
@@ -82,5 +91,5 @@ AI 연결은 `packages/shell/src/ai.ts` 에 있고 제품군의 모든 앱이 �
    - 2-1 (완료): 속성 패널, 실행 취소, 복제, 프로젝트 저장/열기(.nmodel), OBJ/STL/GLB 내보내기
    - 2-2 (완료): 편집 모드(점, 선, 면), 돌출, 안쪽 면, 세분화, 합치기, 뒤집기, 지우기 (베벨은 나중에)
 3. **초보자 친화 기능과 AI 모델링**: 튜토리얼, 글로 설명하면 AI 가 모델을 만들고 대화로 고쳐주기
-4. **Windows 설치 파일(.exe) 만들기**
+4. **Windows 설치 파일(.exe) 만들기** (완료: GitHub Actions 자동 빌드)
 5. **이펙트 기능** (나중에)
