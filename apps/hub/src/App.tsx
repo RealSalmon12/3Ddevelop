@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { MenuBar, SUITE_NAME, Toast, UpdateButton, useToast, useUpdater, type Menu } from "@suite/ui";
+import { COMMUNITY_URL, MenuBar, SUITE_NAME, Toast, UpdateButton, useToast, useUpdater, type Menu } from "@suite/ui";
 import { SUITE_APPS, type SuiteApp } from "./catalog";
 import type { AppState, HubListResult } from "./hubBridge";
 import hubIcon from "./icons/hub.png";
@@ -61,6 +61,7 @@ export function App() {
       label: "도움말",
       items: [
         { label: "업데이트 확인", onSelect: () => void updater.check(true) },
+        { label: "커뮤니티 (디스코드)", onSelect: () => window.open(COMMUNITY_URL) },
         {
           label: "모든 설치 파일 보기 (GitHub)",
           onSelect: () => window.open("https://github.com/RealSalmon12/3Ddevelop/releases"),
@@ -149,6 +150,13 @@ export function App() {
               <li>막히면 오른쪽 <b>✨ AI 도우미</b>에게 글로 부탁해요.</li>
               <li>새 버전이 나오면 여기 노란 <b>업데이트</b> 버튼이 생겨요.</li>
             </ol>
+          </section>
+          <section className="hub-side-card">
+            <h2>🦭 함께 만들어요</h2>
+            <p className="hub-small" style={{ marginTop: 0 }}>디스코드 커뮤니티에서 질문하고, 작품을 자랑하고, 새 버전 소식을 가장 먼저 받아 보세요.</p>
+            <button className="hub-button ghost" onClick={() => window.open(COMMUNITY_URL)}>
+              디스코드 커뮤니티 들어가기
+            </button>
           </section>
         </aside>
       </div>

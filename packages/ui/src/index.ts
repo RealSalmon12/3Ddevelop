@@ -1,4 +1,4 @@
-export { SUITE_NAME } from "./brand";
+export { COMMUNITY_URL, SUITE_NAME } from "./brand";
 export { AppFrame } from "./components/AppFrame";
 export { MenuBar, type Menu, type MenuItem } from "./components/MenuBar";
 export { Toolbar, type Tool, type ToolAction } from "./components/Toolbar";
