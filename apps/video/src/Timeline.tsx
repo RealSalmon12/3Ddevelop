@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { PEAKS_PER_SECOND, thumbnail, waveform } from "./media";
-import { clearRange, clipDuration, clipEnd, isStill, isVisual, projectDuration, splitClip, timecode, type Clip, type MediaItem, type Project, type Track } from "./model";
+import { clearRange, clipDuration, clipEnd, isStill, isVisual, projectDuration, splitClip, timecode, TRANSITIONS, transitionLength, type Clip, type MediaItem, type Project, type Track, type TransitionKind } from "./model";
 
 export type TimelineTool = "select" | "razor";
 
@@ -327,6 +327,12 @@ export function Timeline(props: TimelineProps) {
                     pxPerSec={pxPerSec}
                     selected={selected.has(c.id)}
                     onPointerDown={(e) => onClipDown(e, c)}
+                    onDropTransition={(kind) => {
+                      if (track.locked || c.kind === "audio") return;
+                      const duration = Math.min(1, clipDuration(c) / 2);
+                      props.set({ ...project, clips: project.clips.map((x) => (x.id === c.id ? { ...x, transitionIn: { kind, duration } } : x)) });
+                      props.setSelected(new Set([c.id]));
+                    }}
                   />
                 ))}
             </div>
@@ -339,13 +345,27 @@ export function Timeline(props: TimelineProps) {
   );
 }
 
-function ClipBlock({ clip, media, pxPerSec, selected, onPointerDown }: { clip: Clip; media?: MediaItem; pxPerSec: number; selected: boolean; onPointerDown: (e: ReactPointerEvent) => void }) {
+function ClipBlock({
+  clip,
+  media,
+  pxPerSec,
+  selected,
+  onPointerDown,
+  onDropTransition,
+}: {
+  clip: Clip;
+  media?: MediaItem;
+  pxPerSec: number;
+  selected: boolean;
+  onPointerDown: (e: ReactPointerEvent) => void;
+  onDropTransition: (kind: TransitionKind) => void;
+}) {
   const [thumb, setThumb] = useState<string | null>(null);
   const w = clipDuration(clip) * pxPerSec;
   useEffect(() => {
     if (media && media.kind !== "audio") void thumbnail(media).then(setThumb);
   }, [media]);
-  const graded = Object.values(clip.color).some((v) => v !== 0);
+  const graded = Object.values(clip.color).some((v) => v !== 0) || !!clip.key?.on || (!!clip.blend && clip.blend !== "source-over");
   const keyed = Object.values(clip.params).some((p) => p.keys?.length);
   return (
     <div
@@ -353,6 +373,22 @@ function ClipBlock({ clip, media, pxPerSec, selected, onPointerDown }: { clip: C
       style={{ left: clip.start * pxPerSec, width: Math.max(2, w) }}
       onPointerDown={onPointerDown}
       title={clip.name}
+      onDragOver={(e) => {
+        if (clip.kind !== "audio" && e.dataTransfer.types.includes("application/x-baco-transition")) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.currentTarget.classList.add("drop");
+        }
+      }}
+      onDragLeave={(e) => e.currentTarget.classList.remove("drop")}
+      onDrop={(e) => {
+        const kind = e.dataTransfer.getData("application/x-baco-transition") as TransitionKind;
+        e.currentTarget.classList.remove("drop");
+        if (!kind) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onDropTransition(kind);
+      }}
     >
       {thumb && isVisual(clip) && <div className="tl-thumb" style={{ backgroundImage: `url(${thumb})` }} />}
       {media && clip.kind === "audio" && <Wave media={media} clip={clip} width={w} />}
@@ -362,6 +398,11 @@ function ClipBlock({ clip, media, pxPerSec, selected, onPointerDown }: { clip: C
         {clip.speed !== 1 && <b className="tl-badge">{Math.round(clip.speed * 100)}%</b>}
         {clip.kind === "text" ? `T ${clip.text?.text.split("\n")[0] ?? ""}` : clip.name}
       </span>
+      {clip.transitionIn && (
+        <div className="tl-transition" style={{ width: Math.max(6, transitionLength(clip) * pxPerSec) }} title={`전환: ${TRANSITIONS.find((t) => t.kind === clip.transitionIn!.kind)?.label} · ${clip.transitionIn.duration.toFixed(2)}초`}>
+          <span>{TRANSITIONS.find((t) => t.kind === clip.transitionIn!.kind)?.label}</span>
+        </div>
+      )}
       {clip.fadeIn > 0 && <div className="tl-fade in" style={{ width: clip.fadeIn * pxPerSec }} />}
       {clip.fadeOut > 0 && <div className="tl-fade out" style={{ width: clip.fadeOut * pxPerSec }} />}
     </div>
