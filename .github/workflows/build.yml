@@ -39,19 +39,19 @@ jobs:
             title: 바코 스튜디오 허브
             latest: "true"
           - app: modeler
-            title: 스컬프트 3D
+            title: 바코 빙산
             latest: "false"
           - app: pixel
-            title: 도트 아틀리에
+            title: 바코 눈꽃
             latest: "false"
           - app: photo
-            title: 루미 포토
+            title: 바코 진주
             latest: "false"
           - app: sound
-            title: 웨이브 랩
+            title: 바코 파도
             latest: "false"
           - app: video
-            title: 무비 컷
+            title: 바코 오로라
             latest: "false"
     steps:
       - uses: actions/checkout@v4

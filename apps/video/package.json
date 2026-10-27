@@ -2,7 +2,7 @@
   "name": "@suite/video",
   "version": "0.1.0",
   "private": true,
-  "description": "바코 스튜디오 무비 컷",
+  "description": "바코 스튜디오 오로라",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -27,7 +27,7 @@
   "author": "바코 스튜디오",
   "build": {
     "appId": "com.nugunastudio.video",
-    "productName": "무비 컷",
+    "productName": "바코 오로라",
     "artifactName": "BacoStudio-Video-Setup-${version}.${ext}",
     "directories": {
       "output": "release",
@@ -48,7 +48,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "무비 컷",
+      "shortcutName": "바코 오로라",
       "language": "1042"
     },
     "electronVersion": "45.0.0",

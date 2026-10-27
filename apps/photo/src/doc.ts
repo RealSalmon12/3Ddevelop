@@ -1,4 +1,4 @@
-// 루미 포토 문서. 바꿀 때마다 새 객체를 만들어서, 실행 취소는 예전 객체로 돌아가기만 하면 된다.
+// 바코 진주 문서. 바꿀 때마다 새 객체를 만들어서, 실행 취소는 예전 객체로 돌아가기만 하면 된다.
 
 export interface Adjust {
   /** 밝기, 대비, 채도: 100 이 원래대로 */
@@ -254,9 +254,9 @@ export function parse(text: string): PhotoDoc {
   try {
     data = JSON.parse(text);
   } catch {
-    throw new Error("루미 포토 파일이 아니에요.");
+    throw new Error("바코 진주 파일이 아니에요.");
   }
-  if (data.format !== "nphoto" || !Array.isArray(data.layers)) throw new Error("루미 포토 파일이 아니에요.");
+  if (data.format !== "nphoto" || !Array.isArray(data.layers)) throw new Error("바코 진주 파일이 아니에요.");
   const layers = data.layers.map((l) => ({ ...l, id: newId() }));
   return { width: data.width, height: data.height, background: data.background ?? null, layers };
 }

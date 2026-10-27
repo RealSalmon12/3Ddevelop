@@ -2,7 +2,7 @@
   "name": "@suite/modeler",
   "version": "0.1.0",
   "private": true,
-  "description": "바코 스튜디오 스컬프트 3D",
+  "description": "바코 스튜디오 빙산",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -29,7 +29,7 @@
   "author": "바코 스튜디오",
   "build": {
     "appId": "com.nugunastudio.modeler",
-    "productName": "스컬프트 3D",
+    "productName": "바코 빙산",
     "artifactName": "BacoStudio-3D-Modeler-Setup-${version}.${ext}",
     "directories": {
       "output": "release",
@@ -50,14 +50,14 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "스컬프트 3D",
+      "shortcutName": "바코 빙산",
       "language": "1042"
     },
     "fileAssociations": [
       {
         "ext": "nmodel",
-        "name": "스컬프트 3D 프로젝트",
-        "description": "스컬프트 3D 프로젝트",
+        "name": "바코 빙산 프로젝트",
+        "description": "바코 빙산 프로젝트",
         "role": "Editor"
       }
     ],

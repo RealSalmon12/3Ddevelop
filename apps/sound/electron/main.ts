@@ -3,7 +3,7 @@ import { startSuiteApp } from "@suite/shell/main";
 
 startSuiteApp({
   appId: "sound",
-  title: "웨이브 랩",
+  title: "바코 파도",
   preloadPath: path.join(__dirname, "preload.cjs"),
   indexHtmlPath: path.join(__dirname, "../dist/index.html"),
   updates: { repo: "RealSalmon12/3Ddevelop", tagPrefix: "sound-build-" },

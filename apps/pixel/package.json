@@ -2,7 +2,7 @@
   "name": "@suite/pixel",
   "version": "0.1.0",
   "private": true,
-  "description": "바코 스튜디오 도트 아틀리에",
+  "description": "바코 스튜디오 눈꽃",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -27,7 +27,7 @@
   "author": "바코 스튜디오",
   "build": {
     "appId": "com.nugunastudio.pixel",
-    "productName": "도트 아틀리에",
+    "productName": "바코 눈꽃",
     "artifactName": "BacoStudio-Pixel-Setup-${version}.${ext}",
     "directories": {
       "output": "release",
@@ -48,14 +48,14 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "도트 아틀리에",
+      "shortcutName": "바코 눈꽃",
       "language": "1042"
     },
     "fileAssociations": [
       {
         "ext": "npixel",
-        "name": "도트 아틀리에 파일",
-        "description": "도트 아틀리에 파일",
+        "name": "바코 눈꽃 파일",
+        "description": "바코 눈꽃 파일",
         "role": "Editor"
       }
     ],

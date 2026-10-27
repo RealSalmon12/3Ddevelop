@@ -21,7 +21,7 @@ import { Engine } from "./engine";
 import { clipLength, clipStart, EMPTY_PROJECT, fmt, locate, newId, totalLength, type Caption, type Clip, type Project } from "./project";
 
 const TOUR_STEPS: TourStep[] = [
-  { title: "무비 컷에 오신 걸 환영해요! 👋", body: "영상과 사진을 이어 붙이고, 자막과 배경 음악을 넣어서 쇼츠 같은 짧은 영상을 만들 수 있어요." },
+  { title: "바코 오로라에 오신 걸 환영해요! 👋", body: "영상과 사진을 이어 붙이고, 자막과 배경 음악을 넣어서 쇼츠 같은 짧은 영상을 만들 수 있어요." },
   { title: "영상 넣기", target: ".video-add", body: "영상이나 사진 파일을 창에 끌어다 놓거나 ‘＋ 영상·사진 넣기’를 눌러요. 넣은 순서대로 아래에 이어져요." },
   { title: "타임라인", target: ".timeline", body: "아래 줄이 시간 순서예요. 조각을 눌러 고르고, 오른쪽에서 앞뒤를 잘라 내거나 순서를 바꿔요. 줄을 클릭하면 그 시간으로 가요." },
   { title: "자막과 음악", target: ".suite-side .suite-panel:nth-of-type(2)", body: "‘＋ 자막’을 누르면 지금 시간에 자막이 생겨요. 배경 음악도 넣을 수 있어요." },
@@ -91,7 +91,7 @@ export function App() {
   useEffect(() => engine.current?.setProject(project), [project]);
 
   useEffect(() => {
-    document.title = `${history.dirty ? "● " : ""}무비 컷`;
+    document.title = `${history.dirty ? "● " : ""}바코 오로라`;
     window.suite?.window.setDirty(history.dirty);
   }, [history.dirty]);
 
@@ -301,7 +301,7 @@ export function App() {
     <AppFrame
       menubar={
         <MenuBar
-          appName="무비 컷"
+          appName="바코 오로라"
           menus={menus}
           actions={
             <>

@@ -35,7 +35,7 @@ const HINTS: Record<ToolId, string> = {
 };
 
 const TOUR_STEPS: TourStep[] = [
-  { title: "루미 포토에 오신 걸 환영해요! 👋", body: "사진을 꾸미고 글자를 넣어서 썸네일이나 게임 아이콘을 만들 수 있어요." },
+  { title: "바코 진주에 오신 걸 환영해요! 👋", body: "사진을 꾸미고 글자를 넣어서 썸네일이나 게임 아이콘을 만들 수 있어요." },
   { title: "사진 넣기", target: ".suite-menu:nth-of-type(1)", body: "‘파일 → 사진 넣기’(Ctrl+I)로 사진을 가져와요. 사진 파일을 창에 끌어다 놓아도 돼요." },
   { title: "도구", target: ".suite-toolbar", body: "옮기기(V)로 사진과 글자를 옮기고 키우고, 글자(T)로 글자를 넣고, 자르기(C)로 필요한 부분만 남겨요." },
   { title: "보정과 필터", target: ".suite-side .suite-panel:nth-of-type(1)", body: "사진을 고르면 ‘선명하게’, ‘따뜻하게’, ‘흑백’ 같은 필터와 밝기·대비·채도를 바꿀 수 있어요." },
@@ -43,7 +43,7 @@ const TOUR_STEPS: TourStep[] = [
   { title: "저장하기", target: ".suite-menu:nth-of-type(1)", body: "‘PNG 로 내보내기’나 ‘JPG 로 내보내기’로 그림 파일을 만들어요. 나중에 고치려면 ‘저장’(Ctrl+S)도 해 두세요." },
 ];
 
-const PROJECT = { name: "루미 포토 파일", extensions: ["nphoto"] };
+const PROJECT = { name: "바코 진주 파일", extensions: ["nphoto"] };
 const IMAGES = { name: "사진", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp"] };
 const MAX_SIDE = 2560;
 const baseName = (p: string) => p.split(/[\\/]/).pop()!.replace(/\.[^.]+$/, "");
@@ -93,7 +93,7 @@ export function App() {
   const name = filePath ? baseName(filePath) : "제목 없음";
 
   useEffect(() => {
-    document.title = `${history.dirty ? "● " : ""}${name} - 루미 포토`;
+    document.title = `${history.dirty ? "● " : ""}${name} - 바코 진주`;
     window.suite?.window.setDirty(history.dirty);
   }, [name, history.dirty]);
 
@@ -371,7 +371,7 @@ export function App() {
     <AppFrame
       menubar={
         <MenuBar
-          appName="루미 포토"
+          appName="바코 진주"
           menus={menus}
           actions={
             <>

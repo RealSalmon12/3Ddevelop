@@ -28,7 +28,7 @@ import { useAutosave } from "./useAutosave";
 import { useFile } from "./useFile";
 
 const TOUR_STEPS: TourStep[] = [
-  { title: "도트 아틀리에에 오신 걸 환영해요! 👋", body: "네모 칸을 하나씩 칠해서 그림을 그리는 프로그램이에요. 아이콘, 게임 캐릭터, 로블록스 데칼을 만들 수 있어요. 언제든 ‘도움말’에서 이 안내를 다시 볼 수 있어요." },
+  { title: "바코 눈꽃에 오신 걸 환영해요! 👋", body: "네모 칸을 하나씩 칠해서 그림을 그리는 프로그램이에요. 아이콘, 게임 캐릭터, 로블록스 데칼을 만들 수 있어요. 언제든 ‘도움말’에서 이 안내를 다시 볼 수 있어요." },
   { title: "칠하기", target: ".suite-main", body: "연필로 칸을 클릭하거나 끌어서 칠해요. 오른쪽 버튼으로 누르면 지워져요. 마우스 휠로 확대/축소하고, Space 를 누른 채 끌면 화면이 옮겨져요." },
   { title: "도구", target: ".suite-toolbar", body: "채우기(G)로 넓은 곳을 한 번에, 직선·네모·동그라미로 모양을 그려요. 스포이트(I)는 그림에 있는 색을 가져와요." },
   { title: "좌우 대칭", target: ".pixel-options", body: "‘좌우 대칭’을 켜면 한쪽만 그려도 반대쪽이 똑같이 그려져요. 캐릭터 얼굴이나 몸을 그릴 때 아주 편해요." },
@@ -165,7 +165,7 @@ export function App() {
     <AppFrame
       menubar={
         <MenuBar
-          appName="도트 아틀리에"
+          appName="바코 눈꽃"
           menus={menus}
           actions={
             <>

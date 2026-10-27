@@ -2,7 +2,7 @@
   "name": "@suite/sound",
   "version": "0.1.0",
   "private": true,
-  "description": "바코 스튜디오 웨이브 랩",
+  "description": "바코 스튜디오 파도",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -27,7 +27,7 @@
   "author": "바코 스튜디오",
   "build": {
     "appId": "com.nugunastudio.sound",
-    "productName": "웨이브 랩",
+    "productName": "바코 파도",
     "artifactName": "BacoStudio-Sound-Setup-${version}.${ext}",
     "directories": {
       "output": "release",
@@ -48,7 +48,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "웨이브 랩",
+      "shortcutName": "바코 파도",
       "language": "1042"
     },
     "electronVersion": "45.0.0",

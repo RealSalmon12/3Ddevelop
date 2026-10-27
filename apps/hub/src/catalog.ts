@@ -18,8 +18,8 @@ export interface SuiteApp {
    * electron-builder 가 appId(com.nugunastudio.<id>) 로 만드는 UUID v5 와 같아야 한다.
    */
   guid?: string;
-  /** 이름을 바꾸기 전에 쓰던 설치 폴더 이름. 예전 버전을 설치한 사람도 찾을 수 있게 한다. */
-  oldFolder?: string;
+  /** 이름을 바꾸기 전에 쓰던 설치 폴더 이름들. 예전 버전을 설치한 사람도 찾을 수 있게 한다. */
+  oldFolders?: string[];
   /** 설치 폴더 안 실행 파일 이름 (electron-builder 의 executableName) */
   executable?: string;
 }
@@ -27,56 +27,56 @@ export interface SuiteApp {
 export const SUITE_APPS: SuiteApp[] = [
   {
     id: "modeler",
-    name: "스컬프트 3D",
+    name: "바코 빙산",
     tagline: "3D 모델 만들기",
     description: "도형을 쌓고 늘려서 집, 캐릭터, 소품을 만들어요. 로블록스로 바로 내보낼 수 있어요.",
     color: "#4f8cff",
     tagPrefix: "modeler-build-",
-    oldFolder: "3D 모델러",
+    oldFolders: ["3D 모델러", "스컬프트 3D"],
     guid: "76b0cd18-7416-5518-9d77-ab80b18cc206",
     executable: "NugunaModeler.exe",
   },
   {
     id: "pixel",
-    name: "도트 아틀리에",
+    name: "바코 눈꽃",
     tagline: "픽셀 그림, 게임 텍스처",
     description: "네모 칸을 하나씩 칠해서 아이콘, 캐릭터, 로블록스 데칼과 텍스처를 그려요.",
     color: "#ff5d8f",
     tagPrefix: "pixel-build-",
-    oldFolder: "픽셀 그림판",
+    oldFolders: ["픽셀 그림판", "도트 아틀리에"],
     guid: "293e5bbe-505b-5d8c-9012-7211e280c0c3",
     executable: "NugunaPixel.exe",
   },
   {
     id: "photo",
-    name: "루미 포토",
+    name: "바코 진주",
     tagline: "사진 꾸미기, 썸네일",
     description: "사진을 자르고 밝기를 고치고 글자를 넣어 썸네일을 만들어요.",
     color: "#38c6d9",
     tagPrefix: "photo-build-",
-    oldFolder: "사진 편집기",
+    oldFolders: ["사진 편집기", "루미 포토"],
     guid: "ba1e726c-3302-50f6-a4d8-e9af77d42385",
     executable: "NugunaPhoto.exe",
   },
   {
     id: "sound",
-    name: "웨이브 랩",
+    name: "바코 파도",
     tagline: "효과음, 배경 음악",
     description: "녹음하고 자르고 이어 붙이고, 버튼 하나로 동전·점프·폭발 같은 게임 효과음을 만들어요.",
     color: "#5fd3a0",
     tagPrefix: "sound-build-",
-    oldFolder: "소리 편집기",
+    oldFolders: ["소리 편집기", "웨이브 랩"],
     guid: "22262d3a-24b7-547f-84e0-7943ce5aba1c",
     executable: "NugunaSound.exe",
   },
   {
     id: "video",
-    name: "무비 컷",
+    name: "바코 오로라",
     tagline: "짧은 영상, 쇼츠",
     description: "영상을 자르고 자막과 음악을 넣어서 짧은 영상을 만들어요.",
     color: "#ff9f43",
     tagPrefix: "video-build-",
-    oldFolder: "영상 편집기",
+    oldFolders: ["영상 편집기", "무비 컷"],
     guid: "5eed0071-11eb-5851-8804-0b46fb62d25c",
     executable: "NugunaVideo.exe",
   },

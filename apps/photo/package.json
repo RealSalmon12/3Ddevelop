@@ -2,7 +2,7 @@
   "name": "@suite/photo",
   "version": "0.1.0",
   "private": true,
-  "description": "바코 스튜디오 루미 포토",
+  "description": "바코 스튜디오 진주",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -27,7 +27,7 @@
   "author": "바코 스튜디오",
   "build": {
     "appId": "com.nugunastudio.photo",
-    "productName": "루미 포토",
+    "productName": "바코 진주",
     "artifactName": "BacoStudio-Photo-Setup-${version}.${ext}",
     "directories": {
       "output": "release",
@@ -48,14 +48,14 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "루미 포토",
+      "shortcutName": "바코 진주",
       "language": "1042"
     },
     "fileAssociations": [
       {
         "ext": "nphoto",
-        "name": "루미 포토 파일",
-        "description": "루미 포토 파일",
+        "name": "바코 진주 파일",
+        "description": "바코 진주 파일",
         "role": "Editor"
       }
     ],

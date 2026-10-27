@@ -322,10 +322,10 @@ export class PixelDoc {
     try {
       file = JSON.parse(text);
     } catch {
-      throw new Error("도트 아틀리에 파일이 아니에요.");
+      throw new Error("바코 눈꽃 파일이 아니에요.");
     }
     if (file.format !== "npixel" || !Array.isArray(file.layers) || !file.layers.length)
-      throw new Error("도트 아틀리에 파일이 아니에요.");
+      throw new Error("바코 눈꽃 파일이 아니에요.");
     const { width, height } = file;
     if (!(width > 0 && height > 0 && width <= 512 && height <= 512)) throw new Error("그림 크기가 이상해서 열 수 없어요.");
     this.reset(width, height);
