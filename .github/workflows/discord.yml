@@ -1,0 +1,18 @@
+name: 디스코드 서버 세팅
+
+# Actions 탭에서 ‘Run workflow’를 누를 때만 돈다. 여러 번 돌려도 이미 있는 건 건너뛴다.
+on:
+  workflow_dispatch:
+
+jobs:
+  setup:
+    name: 채널·역할·안내 글 만들기
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/discord/setup.mjs
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}

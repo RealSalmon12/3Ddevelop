@@ -103,3 +103,12 @@ jobs:
             --title "${{ matrix.title }} (빌드 ${{ github.run_number }})" \
             --notes "main 의 최신 코드로 자동으로 만든 Windows 설치 파일이에요. 아래 Assets 에서 .exe 를 받아 실행하세요." \
             --latest=${{ matrix.latest }}
+      - name: 디스코드에 알리기
+        if: steps.changed.outputs.build == 'true'
+        shell: bash
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          APP_TITLE: ${{ matrix.title }}
+          BUILD: ${{ github.run_number }}
+          RELEASE_URL: https://github.com/${{ github.repository }}/releases/tag/${{ matrix.app }}-build-${{ github.run_number }}
+        run: node tools/discord/announce.mjs
