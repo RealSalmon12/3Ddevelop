@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  BLEND_MODES,
+  DEFAULT_KEY,
   evalParam,
   LOOKS,
+  TEXT_ANIMATIONS,
+  TRANSITIONS,
+  type BlendMode,
+  type ChromaKey,
+  type Crop,
+  type TransitionKind,
   NEUTRAL_COLOR,
   setParam,
   toggleKeys,
@@ -102,6 +110,45 @@ export function EffectControls({ clip, time, preview, commit, set, onSeek }: Pro
 
   const textField = <K extends keyof TextStyle>(key: K, v: TextStyle[K]) => set({ ...clip, text: { ...clip.text!, [key]: v } });
 
+  const key = clip.key ?? { ...DEFAULT_KEY, on: false };
+  const setKey = (patch: Partial<ChromaKey>) => set({ ...clip, key: { ...key, ...patch } });
+  const keyRow = (name: "similarity" | "smoothness" | "spill", label: string) => (
+    <div className="fx-row" key={name}>
+      <span className="fx-watch-space" />
+      <span className="fx-label">{label}</span>
+      <Scrub value={key[name]} min={0} max={100} step={1} onPreview={(v) => preview({ ...clip, key: { ...key, [name]: v } })} onCommit={commit} onSet={(v) => setKey({ [name]: v })} />
+    </div>
+  );
+  /** 크롬의 스포이트로 화면 아무 곳의 색을 집는다 */
+  const pickKeyColor = async () => {
+    const Dropper = (window as unknown as { EyeDropper?: new () => { open(): Promise<{ sRGBHex: string }> } }).EyeDropper;
+    if (!Dropper) return;
+    try {
+      const r = await new Dropper().open();
+      setKey({ color: r.sRGBHex, on: true });
+    } catch {
+      // 취소
+    }
+  };
+
+  const crop = clip.crop ?? { left: 0, right: 0, top: 0, bottom: 0 };
+  const cropRow = (side: keyof Crop, label: string) => (
+    <div className="fx-row" key={side}>
+      <span className="fx-watch-space" />
+      <span className="fx-label">{label}</span>
+      <Scrub
+        value={crop[side]}
+        unit="%"
+        min={0}
+        max={100}
+        step={0.5}
+        onPreview={(v) => preview({ ...clip, crop: { ...crop, [side]: v } })}
+        onCommit={commit}
+        onSet={(v) => set({ ...clip, crop: { ...crop, [side]: v } })}
+      />
+    </div>
+  );
+
   return (
     <div className="fx">
       <div className="fx-clip-name">
@@ -160,6 +207,14 @@ export function EffectControls({ clip, time, preview, commit, set, onSeek }: Pro
               </button>
             ))}
           </div>
+          <div className="fx-sub">등장 애니메이션</div>
+          <div className="fx-inline">
+            {TEXT_ANIMATIONS.map((a) => (
+              <button key={a.kind} className={(clip.textAnim ?? "none") === a.kind ? "on" : ""} onClick={() => set({ ...clip, textAnim: a.kind })}>
+                {a.label}
+              </button>
+            ))}
+          </div>
         </Section>
       )}
 
@@ -194,7 +249,104 @@ export function EffectControls({ clip, time, preview, commit, set, onSeek }: Pro
         </Section>
       )}
 
-      {visual && <Section title="불투명도">{param("opacity", "불투명도", "%", { min: 0, max: 100, step: 1 })}</Section>}
+      {visual && (
+        <Section title="불투명도">
+          {param("opacity", "불투명도", "%", { min: 0, max: 100, step: 1 })}
+          <div className="fx-row">
+            <span className="fx-watch-space" />
+            <span className="fx-label">혼합 모드</span>
+            <select className="fx-select" value={clip.blend ?? "source-over"} onChange={(e) => set({ ...clip, blend: e.target.value as BlendMode })}>
+              {BLEND_MODES.map((b) => (
+                <option key={b.mode} value={b.mode}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </Section>
+      )}
+
+      {visual && (
+        <Section title="전환 (앞 클립에서 넘어오기)">
+          <div className="fx-row">
+            <span className="fx-watch-space" />
+            <span className="fx-label">종류</span>
+            <select
+              className="fx-select"
+              value={clip.transitionIn?.kind ?? ""}
+              onChange={(e) => {
+                const kind = e.target.value as TransitionKind | "";
+                const duration = clip.transitionIn?.duration ?? Math.min(1, (clip.out - clip.in) / clip.speed / 2);
+                set({ ...clip, transitionIn: kind ? { kind, duration } : undefined });
+              }}
+            >
+              <option value="">없음 (바로 바뀜)</option>
+              {TRANSITIONS.map((t) => (
+                <option key={t.kind} value={t.kind} title={t.hint}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {clip.transitionIn && (
+            <div className="fx-row">
+              <span className="fx-watch-space" />
+              <span className="fx-label">길이</span>
+              <Scrub
+                value={clip.transitionIn.duration}
+                unit="초"
+                min={0.1}
+                max={5}
+                step={0.05}
+                onPreview={(v) => preview({ ...clip, transitionIn: { ...clip.transitionIn!, duration: v } })}
+                onCommit={commit}
+                onSet={(v) => set({ ...clip, transitionIn: { ...clip.transitionIn!, duration: v } })}
+              />
+            </div>
+          )}
+          <p className="fx-note">왼쪽 ‘효과’ 탭에서 전환을 끌어 클립에 놓아도 돼요. 바로 앞에 붙은 클립이 없으면 아래 트랙(또는 검은 화면)에서 넘어와요.</p>
+        </Section>
+      )}
+
+      {visual && clip.kind !== "text" && (
+        <Section title="자르기 (크롭)" closed>
+          {cropRow("left", "왼쪽")}
+          {cropRow("right", "오른쪽")}
+          {cropRow("top", "위")}
+          {cropRow("bottom", "아래")}
+          <div className="fx-inline">
+            <button onClick={() => set({ ...clip, crop: undefined })}>원래대로</button>
+            <button title="위아래를 잘라 영화 같은 와이드 화면으로" onClick={() => set({ ...clip, crop: { left: 0, right: 0, top: 12, bottom: 12 } })}>
+              시네마 띠
+            </button>
+          </div>
+        </Section>
+      )}
+
+      {(clip.kind === "video" || clip.kind === "image") && (
+        <Section title="울트라 키 (초록 화면 지우기)" closed={!clip.key?.on}>
+          <div className="fx-inline">
+            <button className={key.on ? "on" : ""} onClick={() => setKey({ on: !key.on })}>
+              {key.on ? "켜짐" : "꺼짐"}
+            </button>
+            <label title="지울 색">
+              <input type="color" value={key.color} onChange={(e) => preview({ ...clip, key: { ...key, color: e.target.value, on: true } })} onBlur={commit} />
+              지울 색
+            </label>
+            {"EyeDropper" in window && (
+              <button title="화면에서 스포이트로 배경색 고르기" onClick={() => void pickKeyColor()}>
+                💧 화면에서
+              </button>
+            )}
+            <button onClick={() => setKey({ color: "#00d040", on: true })}>초록</button>
+            <button onClick={() => setKey({ color: "#0047ff", on: true })}>파랑</button>
+          </div>
+          {keyRow("similarity", "범위")}
+          {keyRow("smoothness", "가장자리")}
+          {keyRow("spill", "초록 빼기")}
+          <p className="fx-note">초록 배경 앞에서 찍은 영상을 위 트랙(V2)에 두고 켜면, 아래 트랙의 배경과 합쳐져요.</p>
+        </Section>
+      )}
 
       {audible && <Section title="소리">{param("volume", "볼륨", "%", { min: 0, max: 400, step: 1 })}</Section>}
 
@@ -252,8 +404,8 @@ const TEXT_PRESETS: { label: string; style: Partial<TextStyle> }[] = [
   { label: "큰 제목", style: { size: 160, bold: true, color: "#ffffff", stroke: 0, box: false } },
 ];
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  const [open, setOpen] = useState(true);
+function Section({ title, children, closed = false }: { title: string; children: ReactNode; closed?: boolean }) {
+  const [open, setOpen] = useState(!closed);
   return (
     <div className="fx-section">
       <button className="fx-section-title" aria-expanded={open} onClick={() => setOpen(!open)}>

@@ -33,7 +33,11 @@ import {
   isVisual,
   NEUTRAL_COLOR,
   newId,
+  parseSrt,
+  previousClip,
   projectDuration,
+  toSrt,
+  TRANSITIONS,
   SEQUENCE_PRESETS,
   setParam,
   splitClip,
@@ -97,6 +101,7 @@ export function App() {
   const [newOpen, setNewOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [binTab, setBinTab] = useState<"media" | "effects">("media");
   const [filePath, setFilePath] = useState<string | null>(null);
   const [level, setLevel] = useState(0);
   const clipboard = useRef<Clip[]>([]);
@@ -414,13 +419,70 @@ export function App() {
     setSelected(new Set(pasted.map((c) => c.id)));
   };
 
-  /** Ctrl+D: 기본 전환 (앞뒤 0.5초 페이드) */
+  /** Ctrl+D: 기본 전환. 바로 앞에 붙은 클립이 있으면 교차 디졸브, 없으면 앞뒤 0.5초 페이드 */
   const defaultTransition = () => {
     if (!selectedClips.length) return notify("먼저 전환을 넣을 클립을 골라 주세요.");
-    history.set((p) => ({
+    const p = history.get();
+    const dissolve = new Set(selectedClips.filter((c) => isVisual(c) && previousClip(p, c)).map((c) => c.id));
+    history.set({
       ...p,
-      clips: p.clips.map((c) => (selected.has(c.id) ? { ...c, fadeIn: Math.min(0.5, clipDuration(c) / 3), fadeOut: Math.min(0.5, clipDuration(c) / 3) } : c)),
+      clips: p.clips.map((c) => {
+        if (!selected.has(c.id)) return c;
+        if (dissolve.has(c.id)) return { ...c, transitionIn: { kind: "dissolve", duration: Math.min(1, clipDuration(c) / 2) } };
+        return { ...c, fadeIn: Math.min(0.5, clipDuration(c) / 3), fadeOut: Math.min(0.5, clipDuration(c) / 3) };
+      }),
+    });
+    notify(dissolve.size ? `교차 디졸브 ${dissolve.size}개를 넣었어요. 효과 컨트롤에서 종류와 길이를 바꿀 수 있어요.` : "앞뒤에 페이드를 넣었어요.");
+  };
+
+  const removeTransitions = () =>
+    history.set((p) => ({ ...p, clips: p.clips.map((c) => (selected.has(c.id) ? { ...c, transitionIn: undefined, fadeIn: 0, fadeOut: 0 } : c)) }));
+
+  // ---------- 자막 (SRT) ----------
+
+  /** SRT 를 읽어 줄마다 글자 클립을 가장 위 영상 트랙에 넣는다 */
+  const importSubtitles = async () => {
+    if (!window.suite) return;
+    const r = await window.suite.files.open({ filters: [{ name: "자막 파일", extensions: ["srt"] }] });
+    if (!r.ok) return r.reason === "error" && notify(`열지 못했어요. ${r.message ?? ""}`);
+    const cues = parseSrt(r.text);
+    if (!cues.length) return notify("자막을 찾지 못했어요. SRT 파일이 맞는지 확인해 주세요.");
+    // 자막 시간에 다른 클립이 없는 가장 위 트랙 (모두 차 있으면 맨 위 트랙에 덮어쓴다)
+    const tracks = project.tracks.filter((t) => t.kind === "video" && !t.locked);
+    const free = (id: string) => !project.clips.some((c) => c.track === id && cues.some((q) => c.start < q.end && clipEnd(c) > q.start));
+    const track = tracks.find((t) => free(t.id)) ?? tracks[0];
+    if (!track) return notify("잠기지 않은 영상 트랙이 없어요.");
+    const { height } = project.sequence;
+    const clips: Clip[] = cues.map((cue) => ({
+      id: newId(),
+      kind: "text",
+      name: "자막",
+      track: track.id,
+      start: cue.start,
+      in: 0,
+      out: cue.end - cue.start,
+      speed: 1,
+      params: { ...defaultParams(), y: { value: height * 0.36 } },
+      color: { ...NEUTRAL_COLOR },
+      fadeIn: 0,
+      fadeOut: 0,
+      text: { ...DEFAULT_TEXT, text: cue.text, size: Math.round(height * 0.055), stroke: 8, bold: true },
     }));
+    history.set((p) => ({ ...p, clips: clips.reduce((all, c) => [...clearRange(all, c.track, c.start, clipEnd(c)), c], p.clips) }));
+    notify(`자막 ${clips.length}줄을 ${track.name} 트랙에 넣었어요. 하나를 고르고 효과 컨트롤에서 모양을 바꿀 수 있어요.`);
+  };
+
+  /** 글자 클립을 시간 순서대로 SRT 로 (유튜브에 자막 파일로 올릴 수 있게) */
+  const exportSubtitles = async () => {
+    if (!window.suite) return;
+    const cues = project.clips
+      .filter((c) => c.kind === "text" && c.text?.text.trim())
+      .sort((a, b) => a.start - b.start)
+      .map((c) => ({ start: c.start, end: clipEnd(c), text: c.text!.text.trim() }));
+    if (!cues.length) return notify("내보낼 글자 클립이 없어요.");
+    const r = await window.suite.files.save({ defaultName: `${name}.srt`, filters: [{ name: "자막 파일", extensions: ["srt"] }], data: toSrt(cues) });
+    if (r.ok) notify(`자막 ${cues.length}줄을 저장했어요. 유튜브 스튜디오의 ‘자막 → 파일 업로드’에 올릴 수 있어요.`);
+    else if (r.reason === "error") notify(`저장하지 못했어요. ${r.message ?? ""}`);
   };
 
   /** 편집점(클립 앞뒤) 사이 이동 */
@@ -588,6 +650,8 @@ export function App() {
         { label: "미디어 가져오기…", shortcut: "Ctrl+I", onSelect: () => void importDialog() },
         { label: "내보내기 (MP4 영상)…", shortcut: "Ctrl+M", onSelect: () => setExportOpen(true) },
         { label: "지금 화면을 그림으로 저장 (썸네일)", onSelect: () => void snapshot() },
+        { label: "자막 가져오기 (SRT)…", onSelect: () => void importSubtitles() },
+        { label: "자막 내보내기 (SRT)…", onSelect: () => void exportSubtitles() },
       ],
     },
     {
@@ -606,7 +670,9 @@ export function App() {
       label: "클립",
       items: [
         { label: "재생 위치에서 자르기", shortcut: "Ctrl+K", onSelect: cutAtPlayhead },
-        { label: "기본 전환 넣기 (페이드)", shortcut: "Ctrl+D", disabled: !selectedClips.length, onSelect: defaultTransition },
+        { label: "기본 전환 넣기 (교차 디졸브)", shortcut: "Ctrl+D", disabled: !selectedClips.length, onSelect: defaultTransition },
+        { label: "전환·페이드 지우기", disabled: !selectedClips.length, onSelect: removeTransitions },
+        { label: "전환 고르기 (효과 탭)", onSelect: () => setBinTab("effects") },
         { label: "글자 넣기", shortcut: "Ctrl+T", onSelect: () => addGenerated("text") },
         { label: "색 매트 넣기", onSelect: () => addGenerated("color") },
       ],
@@ -730,7 +796,14 @@ export function App() {
       <div className="ed">
         <section className="bin">
           <header>
-            <b>프로젝트</b>
+            <div className="bin-tabs">
+              <button aria-pressed={binTab === "media"} onClick={() => setBinTab("media")}>
+                프로젝트
+              </button>
+              <button aria-pressed={binTab === "effects"} onClick={() => setBinTab("effects")}>
+                효과
+              </button>
+            </div>
             <button className="mini go" onClick={() => void importDialog()} title="영상, 사진, 소리 가져오기 (Ctrl+I)">
               ＋ 가져오기
             </button>
@@ -741,12 +814,37 @@ export function App() {
               ■ 색
             </button>
           </header>
-          <div className="bin-list">
-            {project.media.length === 0 && <p className="panel-note bin-empty">영상, 사진, 음악 파일을 이 창에 끌어다 놓거나 ‘가져오기’를 눌러요.</p>}
-            {project.media.map((m) => (
-              <BinItem key={m.id} media={m} onOpen={() => overwriteAtPlayhead(m)} />
-            ))}
-          </div>
+          {binTab === "effects" ? (
+            <div className="bin-list">
+              <p className="panel-note">전환을 끌어서 타임라인의 뒤 클립에 놓아요. 앞 클립 끝에서 그 클립으로 넘어가요.</p>
+              <div className="fx-group">영상 전환</div>
+              {TRANSITIONS.map((t) => (
+                <div
+                  key={t.kind}
+                  className="fx-item"
+                  draggable
+                  title={t.hint}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("application/x-baco-transition", t.kind);
+                    e.dataTransfer.effectAllowed = "copy";
+                  }}
+                >
+                  <i />
+                  <span>
+                    {t.label}
+                    <small>{t.hint}</small>
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="bin-list">
+              {project.media.length === 0 && <p className="panel-note bin-empty">영상, 사진, 음악 파일을 이 창에 끌어다 놓거나 ‘가져오기’를 눌러요.</p>}
+              {project.media.map((m) => (
+                <BinItem key={m.id} media={m} onOpen={() => overwriteAtPlayhead(m)} />
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="monitor">
@@ -917,6 +1015,7 @@ export function App() {
 
 const SHORTCUTS = `재생: Space 재생/멈춤 · J 1초 뒤로 · K 멈춤 · L 재생 (누를수록 2배, 4배)
 이동: ← → 한 프레임 (Shift: 5프레임) · ↑ ↓ 앞/다음 편집점 · Home End 처음/끝
+전환: Ctrl+D 교차 디졸브 · 왼쪽 ‘효과’ 탭에서 전환을 끌어 클립에 놓기
 편집: V 선택 도구 · C 자르기 도구 · Ctrl+K 재생 위치 자르기 · Delete 지우기 · Shift+Delete 빈자리 당기며 지우기
 Ctrl+C / Ctrl+V 복사, 붙여넣기 · Ctrl+D 기본 전환(페이드) · Ctrl+T 글자 · . 마지막 미디어를 재생 위치에
 표시: I 시작 · O 끝 · M 마커 · S 스냅 켜기/끄기

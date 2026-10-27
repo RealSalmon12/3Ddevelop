@@ -55,6 +55,76 @@ export interface TextStyle {
 
 export type ClipKind = MediaKind | "text" | "color";
 
+/** 클립 사이 전환. 들어오는 클립(뒤 클립)의 앞에 붙고, 앞 클립은 그동안 원본 뒷부분을 이어서 보여 준다. */
+export type TransitionKind = "dissolve" | "dip-black" | "dip-white" | "push-left" | "push-right" | "slide-left" | "wipe-left" | "wipe-right" | "iris" | "zoom" | "blur";
+
+export interface Transition {
+  kind: TransitionKind;
+  /** 초 */
+  duration: number;
+}
+
+export const TRANSITIONS: { kind: TransitionKind; label: string; hint: string }[] = [
+  { kind: "dissolve", label: "교차 디졸브", hint: "앞 장면이 서서히 사라지며 뒤 장면이 나타나요" },
+  { kind: "dip-black", label: "검게 디핑", hint: "까맣게 어두워졌다가 다음 장면이 밝아져요" },
+  { kind: "dip-white", label: "하얗게 디핑", hint: "하얗게 번쩍인 뒤 다음 장면으로" },
+  { kind: "push-left", label: "밀어내기 ←", hint: "뒤 장면이 오른쪽에서 앞 장면을 밀어내요" },
+  { kind: "push-right", label: "밀어내기 →", hint: "뒤 장면이 왼쪽에서 앞 장면을 밀어내요" },
+  { kind: "slide-left", label: "슬라이드", hint: "뒤 장면이 앞 장면 위로 미끄러져 들어와요" },
+  { kind: "wipe-left", label: "와이프 ←", hint: "오른쪽부터 닦아 내듯 바뀌어요" },
+  { kind: "wipe-right", label: "와이프 →", hint: "왼쪽부터 닦아 내듯 바뀌어요" },
+  { kind: "iris", label: "원형 열기", hint: "가운데 동그라미가 커지며 바뀌어요" },
+  { kind: "zoom", label: "줌 전환", hint: "확 다가가며 다음 장면으로" },
+  { kind: "blur", label: "흐림 전환", hint: "흐려졌다가 다음 장면이 또렷해져요" },
+];
+
+export type BlendMode = "source-over" | "multiply" | "screen" | "overlay" | "lighten" | "darken" | "color-dodge" | "soft-light" | "difference";
+
+export const BLEND_MODES: { mode: BlendMode; label: string }[] = [
+  { mode: "source-over", label: "보통" },
+  { mode: "multiply", label: "곱하기 (어둡게)" },
+  { mode: "screen", label: "스크린 (밝게)" },
+  { mode: "overlay", label: "오버레이" },
+  { mode: "soft-light", label: "소프트 라이트" },
+  { mode: "lighten", label: "밝은 쪽" },
+  { mode: "darken", label: "어두운 쪽" },
+  { mode: "color-dodge", label: "색상 닷지" },
+  { mode: "difference", label: "차이" },
+];
+
+/** 크로마 키 (울트라 키): 초록·파랑 배경을 투명하게 */
+export interface ChromaKey {
+  on: boolean;
+  color: string;
+  /** 얼마나 비슷한 색까지 지울지 (0~100) */
+  similarity: number;
+  /** 가장자리 부드럽게 (0~100) */
+  smoothness: number;
+  /** 머리카락 같은 가장자리에 남는 초록 빼기 (0~100) */
+  spill: number;
+}
+
+export const DEFAULT_KEY: ChromaKey = { on: true, color: "#00d040", similarity: 40, smoothness: 12, spill: 50 };
+
+/** 자르기 (화면 가장자리를 %만큼) */
+export interface Crop {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+export type TextAnimation = "none" | "typewriter" | "pop" | "rise" | "slide" | "bounce";
+
+export const TEXT_ANIMATIONS: { kind: TextAnimation; label: string }[] = [
+  { kind: "none", label: "없음" },
+  { kind: "typewriter", label: "타자기" },
+  { kind: "pop", label: "톡 튀어나오기" },
+  { kind: "rise", label: "아래서 올라오기" },
+  { kind: "slide", label: "옆에서 들어오기" },
+  { kind: "bounce", label: "통통 튀기" },
+];
+
 export interface Clip {
   id: string;
   kind: ClipKind;
@@ -77,6 +147,13 @@ export interface Clip {
   text?: TextStyle;
   /** 색 매트일 때 색 */
   fill?: string;
+  /** 앞 클립에서 이 클립으로 넘어가는 전환 */
+  transitionIn?: Transition;
+  blend?: BlendMode;
+  key?: ChromaKey;
+  crop?: Crop;
+  /** 글자 등장 애니메이션 */
+  textAnim?: TextAnimation;
 }
 
 export interface Track {
@@ -234,6 +311,65 @@ export function fadeFactor(c: Clip, t: number): number {
   if (c.fadeIn > 0 && local < c.fadeIn) f = Math.min(f, local / c.fadeIn);
   if (c.fadeOut > 0 && local > dur - c.fadeOut) f = Math.min(f, (dur - local) / c.fadeOut);
   return Math.max(0, Math.min(1, f));
+}
+
+/** 같은 트랙에서 c 바로 앞에 붙어 있는 클립 (전환의 앞 장면) */
+export function previousClip(p: Project, c: Clip): Clip | null {
+  let best: Clip | null = null;
+  for (const x of p.clips) {
+    if (x.track !== c.track || x.id === c.id) continue;
+    if (Math.abs(clipEnd(x) - c.start) < 1 / 50) best = x;
+  }
+  return best;
+}
+
+/** 전환 길이를 클립 길이 안으로 */
+export const transitionLength = (c: Clip) => (c.transitionIn ? Math.min(c.transitionIn.duration, clipDuration(c)) : 0);
+
+/** 시간 t 에 전환 중인 짝: 들어오는 클립 id → 앞 클립과 진행률 (0~1) */
+export function transitionsAt(p: Project, t: number): Map<string, { outgoing: Clip | null; progress: number; kind: TransitionKind }> {
+  const out = new Map<string, { outgoing: Clip | null; progress: number; kind: TransitionKind }>();
+  for (const c of p.clips) {
+    const d = transitionLength(c);
+    if (!d || t < c.start || t >= c.start + d) continue;
+    out.set(c.id, { outgoing: previousClip(p, c), progress: (t - c.start) / d, kind: c.transitionIn!.kind });
+  }
+  return out;
+}
+
+/** 자막 파일(SRT) 한 줄 */
+export interface Cue {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export function parseSrt(text: string): Cue[] {
+  const time = (s: string) => {
+    const m = s.trim().match(/(\d+):(\d+):(\d+)[,.](\d+)/);
+    return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number(m[4].padEnd(3, "0").slice(0, 3)) / 1000 : NaN;
+  };
+  const cues: Cue[] = [];
+  for (const block of text.replace(/\r/g, "").replace(/^\uFEFF/, "").split(/\n\s*\n/)) {
+    const lines = block.split("\n").filter((l) => l.trim() !== "");
+    const i = lines.findIndex((l) => l.includes("-->"));
+    if (i < 0) continue;
+    const [a, b] = lines[i].split("-->");
+    const start = time(a);
+    const end = time(b);
+    const body = lines.slice(i + 1).join("\n").replace(/<[^>]+>/g, "").trim();
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start && body) cues.push({ start, end, text: body });
+  }
+  return cues;
+}
+
+export function toSrt(cues: Cue[]): string {
+  const stamp = (t: number) => {
+    const ms = Math.max(0, Math.round(t * 1000));
+    const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+    return `${pad(Math.floor(ms / 3600000))}:${pad(Math.floor(ms / 60000) % 60)}:${pad(Math.floor(ms / 1000) % 60)},${pad(ms % 1000, 3)}`;
+  };
+  return cues.map((c, i) => `${i + 1}\n${stamp(c.start)} --> ${stamp(c.end)}\n${c.text}\n`).join("\n");
 }
 
 /** 시간 t 에 화면에 나와야 하는 클립들 (아래 트랙부터) */

@@ -6,9 +6,21 @@ import {
   fileUrl,
   projectDuration,
   sourceTime,
+  transitionsAt,
+  type ChromaKey,
   type Clip,
   type Project,
+  type TransitionKind,
 } from "./model";
+
+/** 전환 중인 클립이 맡은 역할: 들어오는(in) 쪽인지 나가는(out) 쪽인지, 진행률 */
+interface TransitionRole {
+  kind: TransitionKind;
+  progress: number;
+  role: "in" | "out";
+}
+
+const smooth = (u: number) => u * u * (3 - 2 * u);
 
 type MediaEl = HTMLVideoElement | HTMLAudioElement;
 
@@ -42,6 +54,7 @@ export function exportFormats(): { label: string; mimeType: string; ext: string 
 export class Engine {
   private ctx: CanvasRenderingContext2D;
   private scratch = document.createElement("canvas");
+  private keyCanvas = document.createElement("canvas");
   private elements = new Map<string, MediaEl>();
   private images = new Map<string, HTMLImageElement>();
   private gains = new Map<MediaEl, GainNode>();
@@ -167,13 +180,20 @@ export class Engine {
   /** 멈춘 상태에서 t 로 가서 그린다 */
   seek(t: number) {
     this.time = Math.max(0, t);
-    for (const c of this.project.clips) {
-      if (c.kind !== "video" || this.time < c.start || this.time >= clipEnd(c)) continue;
+    for (const c of this.liveClips(this.time)) {
+      if (c.kind !== "video") continue;
       const el = this.elementFor(c) as HTMLVideoElement | null;
       if (el && Math.abs(el.currentTime - sourceTime(c, this.time)) > 0.02) el.currentTime = sourceTime(c, this.time);
     }
     this.draw();
     this.onTime(this.time, false);
+  }
+
+  /** 시간 t 에 원본을 재생해야 하는 클립: 지금 걸친 클립과, 전환 동안 뒷부분을 이어서 보여 주는 앞 클립 */
+  private liveClips(t: number): Clip[] {
+    const live = this.project.clips.filter((c) => t >= c.start && t < clipEnd(c));
+    for (const tr of transitionsAt(this.project, t).values()) if (tr.outgoing) live.push(tr.outgoing);
+    return live;
   }
 
   draw(target = this.canvas, scale = this.previewScale) {
@@ -191,15 +211,94 @@ export class Engine {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, w, h);
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
-    for (const c of activeClips(this.project, this.time, "visual")) this.drawClip(ctx, c, scale);
+    const transitions = transitionsAt(this.project, this.time);
+    for (const c of activeClips(this.project, this.time, "visual")) {
+      const tr = transitions.get(c.id);
+      if (!tr) {
+        this.drawClip(ctx, c, scale);
+        continue;
+      }
+      if (tr.outgoing && tr.outgoing.kind !== "audio") this.drawClip(ctx, tr.outgoing, scale, { kind: tr.kind, progress: tr.progress, role: "out" });
+      this.drawClip(ctx, c, scale, { kind: tr.kind, progress: tr.progress, role: "in" });
+      if (tr.kind === "dip-black" || tr.kind === "dip-white") {
+        // 가운데에서 가장 진하게
+        ctx.save();
+        ctx.globalAlpha = 1 - Math.abs(tr.progress * 2 - 1);
+        ctx.fillStyle = tr.kind === "dip-black" ? "#000" : "#fff";
+        ctx.fillRect(0, 0, width, height);
+        ctx.restore();
+      }
+    }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 
   /** 클립 하나를 시퀀스 좌표(가운데가 0,0)로 그린다. */
-  private drawClip(ctx: CanvasRenderingContext2D, c: Clip, scale: number) {
+  private drawClip(ctx: CanvasRenderingContext2D, c: Clip, scale: number, tr?: TransitionRole) {
     const { width, height } = this.project.sequence;
     const local = this.time - c.start;
-    const opacity = (evalParam(c.params.opacity, local) / 100) * fadeFactor(c, this.time);
+    // 전환으로 끝을 넘어 이어 보여 주는 앞 클립은 끝 직전의 페이드 값을 쓴다.
+    const fadeAt = tr?.role === "out" ? Math.min(this.time, clipEnd(c) - 1e-3) : this.time;
+    let opacity = (evalParam(c.params.opacity, local) / 100) * fadeFactor(c, fadeAt);
+
+    // 전환과 글자 애니메이션이 더하는 움직임
+    let dx = 0;
+    let dy = 0;
+    let zoom = 1;
+    let blur = 0;
+    let clipPath: ((t: CanvasRenderingContext2D) => void) | null = null;
+    if (tr) {
+      const p = tr.progress;
+      const e = smooth(p);
+      const inn = tr.role === "in";
+      switch (tr.kind) {
+        case "dissolve":
+          if (inn) opacity *= p;
+          break;
+        case "dip-black":
+        case "dip-white":
+          if (inn ? p < 0.5 : p >= 0.5) return;
+          break;
+        case "push-left":
+          dx = inn ? (1 - e) * width : -e * width;
+          break;
+        case "push-right":
+          dx = inn ? -(1 - e) * width : e * width;
+          break;
+        case "slide-left":
+          if (inn) dx = (1 - e) * width;
+          break;
+        case "wipe-left":
+          if (inn) clipPath = (t) => t.rect(width * (1 - e), 0, width * e + 1, height);
+          break;
+        case "wipe-right":
+          if (inn) clipPath = (t) => t.rect(0, 0, width * e, height);
+          break;
+        case "iris":
+          if (inn) clipPath = (t) => t.arc(width / 2, height / 2, (e * Math.hypot(width, height)) / 2 + 0.5, 0, Math.PI * 2);
+          break;
+        case "zoom":
+          if (inn) {
+            zoom = 1.5 - 0.5 * e;
+            opacity *= p;
+          } else zoom = 1 + 0.8 * e;
+          break;
+        case "blur":
+          if (inn) {
+            opacity *= p;
+            blur = (1 - e) * 30;
+          } else blur = e * 30;
+          break;
+      }
+    }
+    let textStyle = c.text;
+    if (c.kind === "text" && c.text && c.textAnim && c.textAnim !== "none") {
+      const anim = textAnimation(c.textAnim, local, c.text.text, width);
+      dx += anim.dx;
+      dy += anim.dy;
+      zoom *= anim.scale;
+      opacity *= anim.alpha;
+      textStyle = { ...c.text, text: anim.text };
+    }
     if (opacity <= 0.001) return;
 
     let source: CanvasImageSource | null = null;
@@ -221,38 +320,65 @@ export class Engine {
       }
     }
 
+    const s = (evalParam(c.params.scale, local) / 100) * zoom;
+    const fit = sw && sh ? Math.min(width / sw, height / sh) : 1;
+    // 크로마 키: 화면에 보일 크기로 줄여서 초록을 지운 사본을 쓴다.
+    let drawSource: CanvasImageSource | null = source;
+    let srcW = sw;
+    let srcH = sh;
+    if (source && sw && sh && c.key?.on) {
+      const k = this.keyed(source, sw, sh, c.key, Math.min(1, fit * s * scale));
+      drawSource = k;
+      srcW = k.width;
+      srcH = k.height;
+    }
+
     const color = c.color;
     const graded = color.temperature || color.tint || color.vignette;
     const filter = [
       color.exposure && `brightness(${1 + color.exposure / 100})`,
       color.contrast && `contrast(${1 + color.contrast / 100})`,
       color.saturation && `saturate(${1 + color.saturation / 100})`,
-      color.blur && `blur(${color.blur * scale}px)`,
+      (color.blur || blur) && `blur(${(color.blur + blur) * scale}px)`,
     ]
       .filter(Boolean)
       .join(" ");
+    const blend = c.blend ?? "source-over";
 
     // 색 온도, 비네트는 클립 모양에만 입혀야 해서 따로 그린 뒤 합친다.
     const layer = graded ? this.prepareScratch(width * scale, height * scale) : null;
     const target = layer ?? ctx;
     target.save();
     if (layer) target.setTransform(scale, 0, 0, scale, 0, 0);
+    if (clipPath) {
+      target.beginPath();
+      clipPath(target);
+      target.clip();
+    }
     target.globalAlpha = layer ? 1 : opacity;
+    if (!layer) target.globalCompositeOperation = blend;
     target.filter = filter || "none";
-    target.translate(width / 2 + evalParam(c.params.x, local), height / 2 + evalParam(c.params.y, local));
+    target.translate(width / 2 + evalParam(c.params.x, local) + dx, height / 2 + evalParam(c.params.y, local) + dy);
     target.rotate((evalParam(c.params.rotation, local) * Math.PI) / 180);
-    const s = evalParam(c.params.scale, local) / 100;
     target.scale(s, s);
 
-    if (source && sw && sh) {
+    const crop = c.crop ?? { left: 0, right: 0, top: 0, bottom: 0 };
+    const cl = crop.left / 100;
+    const cr = crop.right / 100;
+    const ct = crop.top / 100;
+    const cb = crop.bottom / 100;
+    if (drawSource && sw && sh) {
       // 화면 안에 다 보이게 맞춘 크기가 100%
-      const fit = Math.min(width / sw, height / sh);
-      target.drawImage(source, (-sw * fit) / 2, (-sh * fit) / 2, sw * fit, sh * fit);
+      const w = sw * fit;
+      const h = sh * fit;
+      const kw = 1 - cl - cr;
+      const kh = 1 - ct - cb;
+      if (kw > 0 && kh > 0) target.drawImage(drawSource, srcW * cl, srcH * ct, srcW * kw, srcH * kh, -w / 2 + w * cl, -h / 2 + h * ct, w * kw, h * kh);
     } else if (c.kind === "color") {
       target.fillStyle = c.fill ?? "#000";
-      target.fillRect(-width / 2, -height / 2, width, height);
-    } else if (c.kind === "text" && c.text) {
-      drawText(target, c.text);
+      target.fillRect(-width / 2 + width * cl, -height / 2 + height * ct, width * (1 - cl - cr), height * (1 - ct - cb));
+    } else if (c.kind === "text" && textStyle) {
+      drawText(target, textStyle);
     }
     target.restore();
 
@@ -281,9 +407,59 @@ export class Engine {
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = opacity;
+      ctx.globalCompositeOperation = blend;
       ctx.drawImage(layer.canvas, 0, 0);
       ctx.restore();
     }
+  }
+
+  /** 크로마 키: 고른 색과 색감(Cb, Cr)이 가까운 칸을 투명하게, 가장자리에 남은 초록(파랑)은 줄인다. */
+  private keyed(source: CanvasImageSource, sw: number, sh: number, key: ChromaKey, k: number): HTMLCanvasElement {
+    const canvas = this.keyCanvas;
+    const w = Math.max(1, Math.round(sw * k));
+    const h = Math.max(1, Math.round(sh * k));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(source, 0, 0, w, h);
+    const img = ctx.getImageData(0, 0, w, h);
+    const d = img.data;
+    const kr = parseInt(key.color.slice(1, 3), 16);
+    const kg = parseInt(key.color.slice(3, 5), 16);
+    const kb = parseInt(key.color.slice(5, 7), 16);
+    const kCb = -0.168736 * kr - 0.331264 * kg + 0.5 * kb;
+    const kCr = 0.5 * kr - 0.418688 * kg - 0.081312 * kb;
+    const lo = (key.similarity / 100) * 0.6 * 128;
+    const hi = lo + ((key.smoothness / 100) * 0.5 + 0.01) * 128;
+    const spill = key.spill / 100;
+    const greenKey = kg >= kb;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i];
+      const g = d[i + 1];
+      const b = d[i + 2];
+      const cb = -0.168736 * r - 0.331264 * g + 0.5 * b - kCb;
+      const cr = 0.5 * r - 0.418688 * g - 0.081312 * b - kCr;
+      const dist = Math.sqrt(cb * cb + cr * cr);
+      if (dist <= lo) {
+        d[i + 3] = 0;
+        continue;
+      }
+      if (dist < hi) d[i + 3] = Math.round(d[i + 3] * ((dist - lo) / (hi - lo)));
+      if (spill > 0) {
+        if (greenKey) {
+          const limit = Math.max(r, b);
+          if (g > limit) d[i + 1] = g - (g - limit) * spill;
+        } else {
+          const limit = Math.max(r, g);
+          if (b > limit) d[i + 2] = b - (b - limit) * spill;
+        }
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return canvas;
   }
 
   private prepareScratch(w: number, h: number) {
@@ -343,8 +519,8 @@ export class Engine {
   private syncMedia(t: number, rate: number) {
     const audible = new Set(activeClips(this.project, t, "audible").map((c) => c.id));
     const live = new Set<string>();
-    for (const c of this.project.clips) {
-      if ((c.kind !== "video" && c.kind !== "audio") || t < c.start || t >= clipEnd(c)) continue;
+    for (const c of this.liveClips(t)) {
+      if (c.kind !== "video" && c.kind !== "audio") continue;
       const el = this.elementFor(c);
       if (!el) continue;
       live.add(c.id);
@@ -416,6 +592,43 @@ export class Engine {
     for (const el of this.elements.values()) el.src = "";
     void this.audio?.close();
   }
+}
+
+/** 글자 등장 애니메이션: 클립 시작부터 local 초가 지났을 때 움직임 */
+function textAnimation(kind: NonNullable<Clip["textAnim"]>, local: number, text: string, width: number) {
+  const out = { dx: 0, dy: 0, scale: 1, alpha: 1, text };
+  const t = Math.max(0, local);
+  switch (kind) {
+    case "typewriter":
+      out.text = [...text].slice(0, Math.floor(t * 22)).join("");
+      break;
+    case "pop": {
+      // 조금 커졌다가 제자리로 (back-out)
+      const v = Math.min(1, t / 0.35) - 1;
+      out.scale = Math.max(0.01, 1 + 2.70158 * v * v * v + 1.70158 * v * v);
+      out.alpha = Math.min(1, (v + 1) * 2);
+      break;
+    }
+    case "rise": {
+      const e = smooth(Math.min(1, t / 0.5));
+      out.dy = (1 - e) * 90;
+      out.alpha = e;
+      break;
+    }
+    case "slide": {
+      const e = smooth(Math.min(1, t / 0.5));
+      out.dx = -(1 - e) * width * 0.35;
+      out.alpha = e;
+      break;
+    }
+    case "bounce": {
+      const u = Math.min(1, t / 0.9);
+      out.dy = -Math.abs(Math.sin(u * Math.PI * 3)) * (1 - u) * 110;
+      out.alpha = Math.min(1, u * 5);
+      break;
+    }
+  }
+  return out;
 }
 
 /** 글자 클립. 여러 줄, 테두리, 띠 배경 */
