@@ -18,6 +18,7 @@ import {
   type ParamName,
   type TextStyle,
 } from "./model";
+import { BUILTIN_LUTS, type LutAsset } from "./lut";
 
 interface Props {
   clip: Clip;
@@ -30,13 +31,17 @@ interface Props {
   /** 바로 기록 */
   set: (c: Clip) => void;
   onSeek: (t: number) => void;
+  /** 프로젝트에 넣은 LUT */
+  luts: LutAsset[];
+  /** .cube 를 가져와서 이 클립에 입힌다 */
+  onImportLut: () => void;
 }
 
 /**
  * 프리미어의 ‘효과 컨트롤’: 고른 클립의 위치, 크기, 회전, 불투명도, 소리, 속도, 색 보정, 페이드.
  * 숫자는 좌우로 끌어서 바꾸고(클릭하면 직접 입력), ⏱ 를 켜면 재생 위치마다 키프레임이 생겨 움직임을 만든다.
  */
-export function EffectControls({ clip, time, preview, commit, set, onSeek }: Props) {
+export function EffectControls({ clip, time, preview, commit, set, onSeek, luts, onImportLut }: Props) {
   const local = Math.max(0, time - clip.start);
   const inside = time >= clip.start && time <= clip.start + (clip.out - clip.in) / clip.speed;
   const visual = clip.kind !== "audio";
@@ -92,7 +97,7 @@ export function EffectControls({ clip, time, preview, commit, set, onSeek }: Pro
     );
   };
 
-  const color = (key: keyof ColorSettings, label: string, min = -100, max = 100) => (
+  const color = (key: Exclude<keyof ColorSettings, "lut" | "lutAmount">, label: string, min = -100, max = 100) => (
     <div className="fx-row" key={key}>
       <span className="fx-watch-space" />
       <span className="fx-label">{label}</span>
@@ -152,7 +157,7 @@ export function EffectControls({ clip, time, preview, commit, set, onSeek }: Pro
   return (
     <div className="fx">
       <div className="fx-clip-name">
-        {clip.kind === "text" ? "T 글자" : clip.name}
+        {clip.kind === "text" ? "T 글자" : clip.kind === "adjust" ? "◐ 조정 레이어" : clip.name}
         {!inside && <span className="fx-hint"> · 재생 위치가 클립 밖이에요</span>}
       </div>
 
@@ -229,7 +234,9 @@ export function EffectControls({ clip, time, preview, commit, set, onSeek }: Pro
         </Section>
       )}
 
-      {visual && (
+      {clip.kind === "adjust" && <p className="fx-note">조정 레이어는 아래 트랙에 보이는 모든 것에 색 보정을 입혀요. 길이를 늘리면 여러 클립을 한 번에 보정하고, 크롭으로 화면 일부만 보정할 수 있어요.</p>}
+
+      {visual && clip.kind !== "adjust" && (
         <Section title="모션">
           {param("x", "위치 X", "px", { step: 1, speed: 2 })}
           {param("y", "위치 Y", "px", { step: 1, speed: 2 })}
@@ -378,6 +385,56 @@ export function EffectControls({ clip, time, preview, commit, set, onSeek }: Pro
           {color("tint", "색조")}
           {color("vignette", "비네트", 0, 100)}
           {color("blur", "흐림", 0, 40)}
+          <div className="fx-group-label">크리에이티브 룩 (LUT)</div>
+          <div className="fx-row">
+            <span className="fx-watch-space" />
+            <span className="fx-label">룩</span>
+            <select
+              className="fx-select"
+              value={clip.color.lut ?? ""}
+              onChange={(e) => set({ ...clip, color: { ...clip.color, lut: e.target.value || undefined } })}
+              title={BUILTIN_LUTS.find((l) => l.id === clip.color.lut)?.hint}
+            >
+              <option value="">없음</option>
+              <optgroup label="기본 룩">
+                {BUILTIN_LUTS.map((l) => (
+                  <option key={l.id} value={l.id} title={l.hint}>
+                    {l.label}
+                  </option>
+                ))}
+              </optgroup>
+              {luts.length > 0 && (
+                <optgroup label="가져온 LUT">
+                  {luts.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+          </div>
+          {clip.color.lut && (
+            <div className="fx-row">
+              <span className="fx-watch-space" />
+              <span className="fx-label">강도</span>
+              <Scrub
+                value={clip.color.lutAmount ?? 100}
+                unit="%"
+                min={0}
+                max={100}
+                step={1}
+                onPreview={(v) => preview({ ...clip, color: { ...clip.color, lutAmount: v } })}
+                onCommit={commit}
+                onSet={(v) => set({ ...clip, color: { ...clip.color, lutAmount: v } })}
+              />
+            </div>
+          )}
+          <div className="fx-inline">
+            <button title="다빈치 리졸브, 프리미어, 포토샵에서 쓰는 3D LUT 파일" onClick={onImportLut}>
+              .cube 가져오기
+            </button>
+          </div>
         </Section>
       )}
 

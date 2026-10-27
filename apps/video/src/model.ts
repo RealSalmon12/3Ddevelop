@@ -1,6 +1,8 @@
 // 바코 오로라 프로젝트 (프리미어 프로식 시퀀스)
 // 미디어(영상, 사진, 소리)는 디스크의 파일을 가리키기만 하고, 타임라인의 클립이 그 일부를 어느 트랙 어느 시간에 놓을지 정한다.
 
+import type { LutAsset } from "./lut";
+
 export type MediaKind = "video" | "image" | "audio";
 
 export interface MediaItem {
@@ -36,6 +38,10 @@ export interface ColorSettings {
   vignette: number;
   /** 흐림 (px, 0 ~ 40) */
   blur: number;
+  /** 크리에이티브 룩: builtin:… 또는 프로젝트에 넣은 .cube 의 id */
+  lut?: string;
+  /** 룩 강도 0 ~ 100 (없으면 100) */
+  lutAmount?: number;
 }
 
 export interface TextStyle {
@@ -53,7 +59,8 @@ export interface TextStyle {
   align: "left" | "center" | "right";
 }
 
-export type ClipKind = MediaKind | "text" | "color";
+/** adjust: 조정 레이어. 그 자체는 보이지 않고, 아래 트랙에 보이는 모든 것에 색 보정을 입힌다. */
+export type ClipKind = MediaKind | "text" | "color" | "adjust";
 
 /** 클립 사이 전환. 들어오는 클립(뒤 클립)의 앞에 붙고, 앞 클립은 그동안 원본 뒷부분을 이어서 보여 준다. */
 export type TransitionKind = "dissolve" | "dip-black" | "dip-white" | "push-left" | "push-right" | "slide-left" | "wipe-left" | "wipe-right" | "iris" | "zoom" | "blur";
@@ -191,6 +198,8 @@ export interface Project {
   /** 내보내기 범위 (I, O) */
   inPoint: number | null;
   outPoint: number | null;
+  /** 가져온 LUT (.cube) */
+  luts?: LutAsset[];
 }
 
 export const SEQUENCE_PRESETS: { label: string; sequence: Sequence }[] = [
@@ -247,7 +256,7 @@ export const DEFAULT_TEXT: TextStyle = {
 export const STILL_SECONDS = 5;
 
 /** 원본 길이에 끝이 없는 클립 (사진, 글자, 색 매트) */
-export const isStill = (c: { kind: ClipKind }) => c.kind === "image" || c.kind === "text" || c.kind === "color";
+export const isStill = (c: { kind: ClipKind }) => c.kind === "image" || c.kind === "text" || c.kind === "color" || c.kind === "adjust";
 export const isVisual = (c: { kind: ClipKind }) => c.kind !== "audio";
 
 /** 타임라인에서 차지하는 길이 */

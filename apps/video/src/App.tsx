@@ -48,6 +48,7 @@ import {
   type Project,
   type Sequence,
 } from "./model";
+import { encodeLut, parseCube } from "./lut";
 import { Timeline, type TimelineTool } from "./Timeline";
 
 const PROJECT_FILTER = { name: "바코 오로라 프로젝트", extensions: ["bvid"] };
@@ -311,15 +312,15 @@ export function App() {
     dropMedia(media.id, track.id, time);
   };
 
-  /** 글자, 색 매트: 가장 위 영상 트랙(V3)의 재생 위치에 */
-  const addGenerated = (kind: "text" | "color") => {
+  /** 글자, 색 매트, 조정 레이어: 가장 위 영상 트랙(V3)의 재생 위치에 */
+  const addGenerated = (kind: "text" | "color" | "adjust") => {
     const track = project.tracks.find((t) => t.kind === "video" && !t.locked);
     if (!track) return notify("잠기지 않은 영상 트랙이 없어요.");
     const clip: Clip = {
       id: newId(),
       kind,
-      name: kind === "text" ? "글자" : "색 매트",
-      track: kind === "text" ? track.id : defaultTrack(project, "video")!.id,
+      name: kind === "text" ? "글자" : kind === "adjust" ? "조정 레이어" : "색 매트",
+      track: kind === "color" ? defaultTrack(project, "video")!.id : track.id,
       start: time,
       in: 0,
       out: STILL_SECONDS,
@@ -328,7 +329,7 @@ export function App() {
       color: { ...NEUTRAL_COLOR },
       fadeIn: 0,
       fadeOut: 0,
-      ...(kind === "text" ? { text: { ...DEFAULT_TEXT } } : { fill: "#1b1f2e" }),
+      ...(kind === "text" ? { text: { ...DEFAULT_TEXT } } : kind === "color" ? { fill: "#1b1f2e" } : {}),
     };
     history.set((p) => placeClip(p, clip));
     setSelected(new Set([clip.id]));
@@ -438,6 +439,29 @@ export function App() {
   const removeTransitions = () =>
     history.set((p) => ({ ...p, clips: p.clips.map((c) => (selected.has(c.id) ? { ...c, transitionIn: undefined, fadeIn: 0, fadeOut: 0 } : c)) }));
 
+  // ---------- LUT ----------
+
+  /** .cube 를 읽어 프로젝트에 넣고, 고른 클립에 바로 입힌다 */
+  const importLut = async (target: Clip) => {
+    if (!window.suite) return;
+    const r = await window.suite.files.open({ filters: [{ name: "3D LUT", extensions: ["cube"] }] });
+    if (!r.ok) return r.reason === "error" && notify(`열지 못했어요. ${r.message ?? ""}`);
+    let table;
+    try {
+      table = parseCube(r.text);
+    } catch (e) {
+      return notify(`LUT 을 읽지 못했어요. ${(e as Error).message}`);
+    }
+    const name = baseName(r.path);
+    const asset = { id: newId(), name, size: table.size, data: encodeLut(table) };
+    history.set((p) => ({
+      ...p,
+      luts: [...(p.luts ?? []), asset],
+      clips: p.clips.map((c) => (c.id === target.id ? { ...c, color: { ...c.color, lut: asset.id, lutAmount: c.color.lutAmount ?? 100 } } : c)),
+    }));
+    notify(`LUT ‘${name}’ 을 넣었어요.`);
+  };
+
   // ---------- 자막 (SRT) ----------
 
   /** SRT 를 읽어 줄마다 글자 클립을 가장 위 영상 트랙에 넣는다 */
@@ -531,7 +555,7 @@ export function App() {
 
   const monitorDrag = useRef<{ x: number; y: number; clip: Clip; px: number; py: number } | null>(null);
   const onMonitorDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (!focus || !isVisual(focus) || !unlocked(focus)) return;
+    if (!focus || !isVisual(focus) || focus.kind === "adjust" || !unlocked(focus)) return;
     const local = time - focus.start;
     if (local < 0 || local > clipDuration(focus)) return;
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -675,6 +699,7 @@ export function App() {
         { label: "전환 고르기 (효과 탭)", onSelect: () => setBinTab("effects") },
         { label: "글자 넣기", shortcut: "Ctrl+T", onSelect: () => addGenerated("text") },
         { label: "색 매트 넣기", onSelect: () => addGenerated("color") },
+        { label: "조정 레이어 넣기", onSelect: () => addGenerated("adjust") },
       ],
     },
     {
@@ -752,6 +777,8 @@ export function App() {
                 commit={history.commit}
                 set={(c) => updateClip(c, "set")}
                 onSeek={seek}
+                luts={project.luts ?? []}
+                onImportLut={() => void importLut(focus)}
               />
             ) : (
               <p className="panel-note">
@@ -812,6 +839,9 @@ export function App() {
             </button>
             <button className="mini" onClick={() => addGenerated("color")} title="재생 위치에 단색 배경 넣기">
               ■ 색
+            </button>
+            <button className="mini" onClick={() => addGenerated("adjust")} title="조정 레이어: 아래 트랙 전체에 색 보정과 LUT 을 한 번에">
+              ◐ 조정
             </button>
           </header>
           {binTab === "effects" ? (
