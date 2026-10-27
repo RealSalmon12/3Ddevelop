@@ -2,6 +2,7 @@
 // 모두 원래 캔버스는 두고 새 캔버스를 만든다 (실행 취소를 위해).
 import { createCanvas, ctx2d, cloneCanvas } from "./pixels";
 import { floodRegion } from "./selection";
+import { highPass, median, surfaceBlur } from "./proFilters";
 
 export interface Brush {
   /** 지름 (그림 px) */
@@ -375,7 +376,7 @@ export function drawGradient(
   return out;
 }
 
-export type FilterKind = "blur" | "sharpen" | "noise" | "mosaic" | "motion" | "glow";
+export type FilterKind = "blur" | "sharpen" | "noise" | "mosaic" | "motion" | "glow" | "surface" | "median" | "highpass";
 
 export const FILTERS: { kind: FilterKind; label: string; amountLabel: string; min: number; max: number; initial: number }[] = [
   { kind: "blur", label: "가우시안 흐림", amountLabel: "반경 (px)", min: 0.5, max: 60, initial: 4 },
@@ -384,6 +385,9 @@ export const FILTERS: { kind: FilterKind; label: string; amountLabel: string; mi
   { kind: "noise", label: "노이즈 추가", amountLabel: "양 (%)", min: 1, max: 60, initial: 10 },
   { kind: "mosaic", label: "모자이크", amountLabel: "칸 크기 (px)", min: 2, max: 100, initial: 16 },
   { kind: "glow", label: "부드러운 빛 (블룸)", amountLabel: "세기 (%)", min: 5, max: 100, initial: 40 },
+  { kind: "surface", label: "표면 흐림 (피부 매끈하게, 윤곽은 그대로)", amountLabel: "반경 (px)", min: 1, max: 40, initial: 8 },
+  { kind: "median", label: "먼지와 스크래치 (점·노이즈 없애기)", amountLabel: "반경 (px)", min: 1, max: 12, initial: 2 },
+  { kind: "highpass", label: "하이 패스 (오버레이로 선명하게)", amountLabel: "반경 (px)", min: 0.5, max: 40, initial: 3 },
 ];
 
 /** 필터를 건 새 캔버스 (선택 영역 안에만) */
@@ -412,6 +416,21 @@ export function applyFilter(base: HTMLCanvasElement, kind: FilterKind, amount: n
     g.globalAlpha = amount / 100;
     g.filter = `blur(${Math.max(4, Math.min(w, h) / 60)}px) brightness(115%)`;
     g.drawImage(base, 0, 0);
+  } else if (kind === "surface" || kind === "median" || kind === "highpass") {
+    g.drawImage(base, 0, 0);
+    const data = g.getImageData(0, 0, w, h);
+    let result: Uint8ClampedArray;
+    if (kind === "surface") result = surfaceBlur(data.data, w, h, amount);
+    else if (kind === "median") result = median(data.data, w, h, amount);
+    else {
+      const blurred = createCanvas(w, h);
+      const bg = ctx2d(blurred);
+      bg.filter = `blur(${amount}px)`;
+      bg.drawImage(base, 0, 0);
+      result = highPass(data.data, bg.getImageData(0, 0, w, h).data);
+    }
+    data.data.set(result);
+    g.putImageData(data, 0, 0);
   } else {
     g.drawImage(base, 0, 0);
     const data = g.getImageData(0, 0, w, h);
