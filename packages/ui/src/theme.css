@@ -452,3 +452,65 @@ button { font: inherit; color: inherit; }
 .suite-update-go:disabled { opacity: 0.4; cursor: default; }
 .suite-update-bar { height: 6px; margin: 10px 0; border-radius: 3px; background: var(--bg); overflow: hidden; }
 .suite-update-bar > div { height: 100%; background: var(--accent); transition: width 0.2s; }
+
+/* ---------- 기능 검색 (F3) ---------- */
+.suite-command-backdrop { position: fixed; inset: 0; z-index: 250; }
+.suite-command {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, calc(100vw - 32px));
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  animation: suite-fade 0.1s ease-out;
+}
+@keyframes suite-fade { from { opacity: 0; } }
+.suite-command.at { width: 280px; border-radius: var(--radius); }
+.suite-command-title {
+  padding: 10px 14px 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+.suite-command-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+}
+.suite-command.at .suite-command-input { padding: 8px 14px; font-size: 13px; }
+.suite-command-input:focus { outline: none; }
+.suite-command-list { max-height: 320px; overflow-y: auto; padding: 4px; }
+.suite-command-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-s);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.suite-command-item > span:first-child { flex: 1; }
+.suite-command-item[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); }
+.suite-command-group { font-size: 11px; color: var(--text-dim); }
+.suite-command-item kbd {
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.suite-command-empty { padding: 14px; color: var(--text-dim); text-align: center; }

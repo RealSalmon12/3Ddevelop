@@ -21,7 +21,13 @@ export async function exportScene(
   const root = source.clone(false);
   source.children
     .filter((c) => c.userData.kind !== "effect" && (!only || only(c)))
-    .forEach((c) => root.add(c.clone()));
+    .forEach((c) => {
+      // 화면에서 숨긴 것(H)도 내보낸다. 숨기기는 작업할 때 잠깐 치워 두는 것이라서.
+      // 자식(편집 표시, 와이어프레임 선)은 빼고 모양만 복사한다.
+      const copy = c.clone(false);
+      copy.visible = true;
+      root.add(copy);
+    });
   root.updateMatrixWorld(true);
   switch (format) {
     case "obj":

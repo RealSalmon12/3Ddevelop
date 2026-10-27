@@ -120,11 +120,11 @@
 .prop-range input { flex: 1; min-width: 0; accent-color: var(--accent); }
 .prop-range span { width: 32px; text-align: right; font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 
-/* 오른쪽 위 시점 버튼 */
+/* 오른쪽 위 시점 버튼 (방향 기즈모 아래) */
 .view-buttons {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 104px;
+  right: 29px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -136,7 +136,7 @@
   box-shadow: var(--shadow);
 }
 .view-buttons button {
-  width: 32px;
+  width: 38px;
   height: 30px;
   background: none;
   border: 0;
@@ -146,6 +146,64 @@
   cursor: pointer;
 }
 .view-buttons button:hover { background: var(--bg-raised); color: var(--text); }
+.view-buttons button[aria-pressed="true"] { color: var(--accent); }
+
+/* 방향 기즈모: 공을 누르면 그쪽에서 본다 */
+.nav-gizmo {
+  position: absolute;
+  top: 12px;
+  right: 10px;
+  width: 84px;
+  height: 84px;
+  cursor: grab;
+  user-select: none;
+}
+.nav-gizmo:active { cursor: grabbing; }
+.nav-gizmo-bg { fill: rgba(30, 35, 49, 0); transition: fill 0.15s; }
+.nav-gizmo:hover .nav-gizmo-bg { fill: rgba(30, 35, 49, 0.7); }
+.nav-gizmo-ball { cursor: pointer; }
+.nav-gizmo-ball:hover circle { stroke: #fff; stroke-width: 2; }
+.nav-gizmo text {
+  fill: #141824;
+  font-size: 10px;
+  font-weight: 800;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+/* G/R/S 로 움직이는 동안 위에 뜨는 값과 안내 */
+.modal-readout {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 220px);
+  padding: 8px 14px;
+  background: rgba(20, 24, 36, 0.92);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+  white-space: pre-line;
+  text-align: center;
+  pointer-events: none;
+  box-shadow: var(--shadow);
+}
+.modal-readout::first-line { color: var(--accent); font-weight: 700; }
+
+.outliner li { display: flex; align-items: center; }
+.outliner li > button:first-child { flex: 1; min-width: 0; }
+.outliner .outliner-eye {
+  width: 28px;
+  flex: none;
+  justify-content: center;
+  opacity: 0.55;
+  font-size: 12px;
+}
+.outliner .outliner-eye:hover { opacity: 1; }
+.outliner li.is-hidden > button:first-child { opacity: 0.45; }
 
 .prop-swatches {
   display: grid;

@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   AIAssistantPanel,
   AppFrame,
+  CommandSearch,
   MenuBar,
+  menuCommands,
   Panel,
   Segmented,
   StatusBar,
@@ -14,6 +16,7 @@ import {
   useToast,
   useTour,
   useUpdater,
+  type Command,
   type Menu,
   type Tool,
   type ToolAction,
@@ -30,27 +33,30 @@ import { SHAPES } from "./scene/shapes";
 import { EFFECTS } from "./effects/particles";
 import { useProjectFile } from "./scene/useProjectFile";
 import { Viewport } from "./viewport/Viewport";
-import type { ToolId, ViewportRenderer } from "./viewport/ViewportRenderer";
+import type { ToolId, ViewName, ViewportRenderer } from "./viewport/ViewportRenderer";
+import { SHADING_LABEL, type Shading } from "./viewport/shading";
 
 const TOOLS: (Tool & { id: ToolId })[] = [
   { id: "select", label: "선택", icon: "➚", hint: "오브젝트를 클릭해서 고르기", shortcut: "Q" },
   { id: "move", label: "이동", icon: "✥", hint: "화살표를 끌어서 오브젝트 옮기기", shortcut: "W" },
   { id: "rotate", label: "회전", icon: "⟳", hint: "고리를 끌어서 오브젝트 돌리기", shortcut: "E" },
-  { id: "scale", label: "크기", icon: "⤢", hint: "네모 손잡이를 끌어서 크기 바꾸기", shortcut: "R" },
+  { id: "scale", label: "크기", icon: "⤢", hint: "네모 손잡이를 끌어서 크기 바꾸기", shortcut: "T" },
 ];
 
 const HINTS: Record<ToolId, string> = {
-  select: "클릭: 선택 · 왼쪽 드래그: 돌려보기 · 오른쪽 드래그: 화면 이동 · 휠: 확대/축소",
-  move: "빨강/초록/파랑 화살표를 끌어 옮겨요 · 빈 곳 드래그: 돌려보기",
-  rotate: "고리를 끌어 돌려요 · 빈 곳 드래그: 돌려보기",
-  scale: "손잡이를 끌어 크기를 바꿔요 · 빈 곳 드래그: 돌려보기",
+  select: "클릭: 선택 · 왼쪽 드래그: 돌려보기 · 오른쪽 드래그: 화면 이동 · 휠: 확대/축소 · F3: 기능 검색",
+  move: "화살표를 끌어 옮겨요 · G 를 누르면 마우스로 바로 옮겨요 · Shift+A: 추가 · F3: 기능 검색",
+  rotate: "고리를 끌어 돌려요 · R 을 누르면 마우스로 바로 돌려요 · F3: 기능 검색",
+  scale: "손잡이를 끌어 크기를 바꿔요 · S 를 누르면 마우스로 바로 늘려요 · F3: 기능 검색",
 };
 
 const EDIT_HINTS: Record<SelectMode, string> = {
-  vertex: "점을 클릭해서 고르기 · Shift+클릭: 여러 개 · A: 모두 고르기 · Tab: 편집 끝내기",
-  edge: "선을 클릭해서 고르기 · Shift+클릭: 여러 개 · A: 모두 고르기 · Tab: 편집 끝내기",
-  face: "면을 클릭해서 고르기 · Shift+클릭: 여러 개 · 왼쪽 ‘돌출’로 면을 밀어내 보세요 · Tab: 편집 끝내기",
+  vertex: "점 클릭: 고르기 · Shift+클릭: 여러 개 · A: 모두 · G/R/S: 옮기기/돌리기/늘리기 · Tab: 편집 끝내기",
+  edge: "선 클릭: 고르기 · Shift+클릭: 여러 개 · A: 모두 · G/R/S: 옮기기/돌리기/늘리기 · Tab: 편집 끝내기",
+  face: "면 클릭: 고르기 · Shift+클릭: 여러 개 · E: 돌출 · I: 안쪽 면 · G/R/S: 옮기기/돌리기/늘리기 · Tab: 편집 끝내기",
 };
+
+const SHADINGS: Shading[] = ["solid", "wire", "xray"];
 
 const SELECT_MODES: { value: SelectMode; label: string; hint: string }[] = [
   { value: "vertex", label: "점", hint: "점 고르기 (1)" },
@@ -62,19 +68,25 @@ const TOUR_STEPS: TourStep[] = [
   { title: "바코 빙산에 오신 걸 환영해요! 👋", body: "1분이면 기본 사용법을 익힐 수 있어요. 언제든 ‘도움말’ 메뉴에서 이 안내를 다시 볼 수 있어요." },
   { title: "화면 돌려보기", target: ".suite-main", body: "빈 곳을 왼쪽 버튼으로 끌면 돌려볼 수 있고, 오른쪽 버튼으로 끌면 화면이 옮겨져요. 마우스 휠로 확대/축소해요. 길을 잃으면 Home 키를 누르세요." },
   { title: "도형 추가하기", target: ".suite-menu:nth-of-type(3)", body: "‘추가’ 메뉴에서 정육면체, 구, 원기둥 같은 도형을 넣을 수 있어요. 모든 모델은 이 도형들에서 시작해요." },
-  { title: "옮기고, 돌리고, 크기 바꾸기", target: ".suite-toolbar", body: "도형을 클릭해서 고른 뒤 이동(W), 회전(E), 크기(R) 도구로 손잡이를 끌어 보세요. 크기 손잡이는 끈 쪽만 늘어나요." },
+  { title: "옮기고, 돌리고, 크기 바꾸기", target: ".suite-toolbar", body: "도형을 클릭해서 고른 뒤 이동(W), 회전(E), 크기(T) 도구로 손잡이를 끌어 보세요. 익숙해지면 G(옮기기), R(돌리기), S(늘리기) 키를 눌러 마우스로 바로 움직여 보세요. X, Y, Z 를 누르면 그 방향으로만 움직여요." },
   { title: "숫자로 정확하게", target: ".suite-side .suite-panel:nth-of-type(2)", body: "속성 패널에서 위치, 크기, 색을 숫자로 바꿀 수 있어요. 실수하면 Ctrl+Z 로 되돌리면 돼요." },
   { title: "편집 모드로 모양 바꾸기", target: ".viewport-header", body: "Tab 을 누르면 편집 모드가 돼요. 점, 선, 면을 골라 움직이고, 면을 골라 ‘돌출’하면 새 부분이 튀어나와요." },
   { title: "AI 에게 부탁하기 ✨", target: ".suite-side .suite-panel:last-of-type", body: "만들고 싶은 것을 글로 쓰면 AI 가 만들어 줘요. 처음 한 번 ‘API 키 설정’에서 키를 넣어야 해요." },
-  { title: "저장, 예제, 내보내기", target: ".suite-menu:nth-of-type(1)", body: "‘파일’ 메뉴에서 저장(Ctrl+S)하고, 예제(집, 나무, 블록 캐릭터…)를 열어 뜯어볼 수 있어요. 로블록스용이나 3D 프린팅용으로 내보낼 수도 있어요. 이제 마음껏 만들어 보세요!" },
+  { title: "저장, 예제, 내보내기", target: ".suite-menu:nth-of-type(1)", body: "‘파일’ 메뉴에서 저장(Ctrl+S)하고, 예제(집, 나무, 블록 캐릭터…)를 열어 뜯어볼 수 있어요. 로블록스용이나 3D 프린팅용으로 내보낼 수도 있어요. 기능이 어디 있는지 모르겠으면 F3 을 누르고 이름을 쳐 보세요. 이제 마음껏 만들어 보세요!" },
 ];
 
-const SHORTCUT_HELP = `마우스: 왼쪽 드래그 돌려보기 · 오른쪽 드래그 옮기기 · 휠 확대/축소
-Q 선택 · W 이동 · E 회전 · R 크기 · Delete 지우기 · Ctrl+D 복제 · Ctrl+M 좌우 대칭 복제
+const SHORTCUT_HELP = `F3 기능 검색 (이름을 쳐서 아무 기능이나 실행) · Shift+A 추가 메뉴
+마우스: 왼쪽 드래그 돌려보기 · 오른쪽 드래그 옮기기 · 휠 확대/축소
+G 옮기기 · R 돌리기 · S 늘리기 → 이어서 X/Y/Z 방향 고정, 숫자 입력, 클릭·Enter 확정, Esc 취소
+Q 선택 도구 · W 이동 도구 · E 회전 도구 · T 크기 도구 · Shift+Tab 칸 맞춤
+X·Delete 지우기 · Shift+D 복제해서 옮기기 · Ctrl+D 복제 · Ctrl+M 좌우 대칭 복제
+H 숨기기 · Shift+H 고른 것만 보기 · Alt+H 모두 보이기 · Z 보기 방식 (솔리드/와이어/X-ray)
+숫자패드 1/3/7 앞/옆/위 (Ctrl 누르면 반대쪽) · 5 원근/평면 · 2/4/6/8 돌려 보기 · 9 반대편
 Ctrl+Z 되돌리기 · Ctrl+Y 다시 실행 · Ctrl+S 저장 · Home 처음 시점 · . 선택한 것 가운데로
-Tab 편집 모드 · 1/2/3 점/선/면 · A 모두 고르기 · Shift+E 돌출 · Shift+I 안쪽 면 · M 합치기`;
+Tab 편집 모드 · 1/2/3 점/선/면 · A 모두 고르기 · E 돌출 · I 안쪽 면 · M 합치기`;
 
-const SHORTCUTS: Record<string, ToolId> = { q: "select", w: "move", e: "rotate", r: "scale" };
+const SHORTCUTS: Record<string, ToolId> = { q: "select", w: "move", e: "rotate", t: "scale" };
+const MODAL_KEYS = { g: "grab", r: "rotate", s: "scale" } as const;
 const MODE_KEYS: Record<string, SelectMode> = { "1": "vertex", "2": "edge", "3": "face" };
 
 function createStartScene() {
@@ -94,16 +106,44 @@ export function App() {
   const [aiOpen, setAiOpen] = useState(true);
   const [bloom, setBloom] = useState(true);
   const [snap, setSnap] = useState(false);
+  const [shading, setShading] = useState<Shading>("solid");
+  const [ortho, setOrtho] = useState(false);
+  const [search, setSearch] = useState<null | { kind: "all" } | { kind: "add"; at: { x: number; y: number } }>(null);
   const [toast, notify] = useToast(4500);
+  const needFaces = "먼저 면을 골라 주세요. 위에서 ‘면’을 누르고 면을 클릭하면 돼요.";
   const file = useProjectFile(model, dirty, notify);
   const tour = useTour("modeler");
   const updater = useUpdater(notify);
   useAutosave(model, dirty, notify);
+  /** 화면 기준 마우스 위치. Shift+A 메뉴를 마우스 옆에 띄울 때 쓴다. */
+  const pointer = useRef({ x: 0, y: 0 });
   const onViewportReady = useCallback((v: ViewportRenderer | null) => setViewport(v), []);
 
   useEffect(() => viewport?.setTool(tool), [viewport, tool]);
   useEffect(() => viewport?.setBloom(bloom), [viewport, bloom]);
   useEffect(() => viewport?.setSnap(snap), [viewport, snap]);
+  useEffect(() => viewport?.setShading(shading), [viewport, shading]);
+  const toggleOrtho = () => viewport && setOrtho(viewport.toggleOrthographic());
+  const view = (v: ViewName) => viewport?.setView(v);
+  const cycleShading = () => setShading((s) => SHADINGS[(SHADINGS.indexOf(s) + 1) % SHADINGS.length]);
+  const nothingToMove = () =>
+    notify(edit ? "먼저 움직일 점, 선, 면을 골라 주세요." : "먼저 움직일 오브젝트를 클릭해서 골라 주세요.");
+  const startModal = (kind: "grab" | "rotate" | "scale") => viewport?.startModal(kind) || nothingToMove();
+  /** E: 면을 돌출하고 바로 마우스로 높이를 정한다. 취소하면 돌출 전으로 돌아간다. */
+  const extrudeModal = () => {
+    if (!model.extrude(0)) return void notify(needFaces);
+    viewport?.startModal("grab", {
+      direction: model.selectedFaceNormal() ?? undefined,
+      label: "돌출",
+      onConfirm: () => model.amendCommit(),
+      onCancel: () => model.undo(),
+    });
+  };
+  /** Shift+D: 같은 자리에 복제하고 바로 옮긴다. */
+  const duplicateModal = () => {
+    if (!model.duplicateSelected(true)) return void notify("먼저 복제할 오브젝트를 골라 주세요.");
+    viewport?.startModal("grab", { label: "복제해서 옮기기", onConfirm: () => model.amendCommit() });
+  };
 
   const EDIT_BLOCKED = {
     "nothing-selected": "편집 모드는 오브젝트 하나의 모양을 고치는 곳이에요. 먼저 고칠 오브젝트를 클릭하거나 오른쪽 장면 목록에서 골라 주세요.",
@@ -111,10 +151,9 @@ export function App() {
   } as const;
   const explainEdit = (result: "ok" | keyof typeof EDIT_BLOCKED) => result !== "ok" && notify(EDIT_BLOCKED[result]);
 
-  const needFaces = "먼저 면을 골라 주세요. 위에서 ‘면’을 누르고 면을 클릭하면 돼요.";
   const editActions: ToolAction[] = [
-    { label: "돌출", icon: "⬆", hint: "고른 면을 바깥으로 밀어내며 벽을 세워요", shortcut: "Shift+E", onRun: () => model.extrude() || notify(needFaces) },
-    { label: "안쪽 면", icon: "▣", hint: "고른 면 안쪽에 작은 면을 만들어요", shortcut: "Shift+I", onRun: () => model.inset() || notify(needFaces) },
+    { label: "돌출", icon: "⬆", hint: "고른 면을 바깥으로 밀어내며 벽을 세워요. E 키로 하면 마우스로 높이를 정해요", shortcut: "E", onRun: () => model.extrude() || notify(needFaces) },
+    { label: "안쪽 면", icon: "▣", hint: "고른 면 안쪽에 작은 면을 만들어요", shortcut: "I", onRun: () => model.inset() || notify(needFaces) },
     { label: "세분화", icon: "⊞", hint: "고른 면을 더 작은 면으로 나눠요", onRun: () => model.subdivide() || notify(needFaces) },
     { label: "모서리 깎기", icon: "◇", hint: "모든 모서리를 비스듬히 깎아요. 여러 번 하면 둥글어져요", shortcut: "Ctrl+B", onRun: () => model.bevel() || notify("구멍 없이 닫힌 모양에서만 깎을 수 있어요. 편집 모드에서 써 주세요.") },
     { label: "합치기", icon: "⊙", hint: "고른 점들을 한 점으로 합쳐요", shortcut: "M", onRun: () => model.merge() || notify("합칠 점을 두 개 이상 골라 주세요.") },
@@ -126,7 +165,34 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       // 글자를 입력하는 중이나 안내가 떠 있을 때는 단축키를 쓰지 않는다.
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || isTourOpen()) return;
+      // G/R/S 로 움직이는 중에는 키가 모두 그쪽으로 간다 (X/Y/Z, 숫자, Enter, Esc).
+      if (viewport?.modalActive()) {
+        if (viewport.modalKey(e)) e.preventDefault();
+        return;
+      }
       const key = e.key.toLowerCase();
+
+      if (key === "f3" || (key === " " && e.ctrlKey)) {
+        e.preventDefault();
+        return setSearch({ kind: "all" });
+      }
+      // 숫자패드는 블렌더처럼 시점 바꾸기. 위쪽 숫자 1/2/3 (점/선/면) 과 겹치지 않게 code 로 구분한다.
+      const numpad: Record<string, () => void> = {
+        Numpad1: () => view(e.ctrlKey ? "back" : "front"),
+        Numpad3: () => view(e.ctrlKey ? "left" : "right"),
+        Numpad7: () => view(e.ctrlKey ? "bottom" : "top"),
+        Numpad5: toggleOrtho,
+        Numpad9: () => viewport?.orbitStep(12, 0),
+        Numpad4: () => viewport?.orbitStep(-1, 0),
+        Numpad6: () => viewport?.orbitStep(1, 0),
+        Numpad8: () => viewport?.orbitStep(0, 1),
+        Numpad2: () => viewport?.orbitStep(0, -1),
+        NumpadDecimal: () => viewport?.frameSelected(),
+      };
+      if (numpad[e.code]) {
+        e.preventDefault();
+        return numpad[e.code]();
+      }
 
       if (e.ctrlKey || e.metaKey) {
         const actions: Record<string, () => void> = {
@@ -145,32 +211,55 @@ export function App() {
         }
         return;
       }
-      if (e.altKey) return;
-      // 숫자패드는 블렌더처럼 시점 바꾸기. 위쪽 숫자 1/2/3 (점/선/면) 과 겹치지 않게 code 로 구분한다.
-      const views = { Numpad1: "front", Numpad3: "right", Numpad7: "top" } as const;
-      if (e.code in views) return viewport?.setView(views[e.code as keyof typeof views]);
-      if (key === "tab") {
-        e.preventDefault();
-        explainEdit(model.toggleEdit());
+      if (e.altKey) {
+        if (key === "h") {
+          e.preventDefault();
+          model.unhideAll();
+        }
         return;
       }
-      if (model.getSnapshot().edit) {
-        if (e.shiftKey && key === "e") return void (model.extrude() || notify(needFaces));
-        if (e.shiftKey && key === "i") return void (model.inset() || notify(needFaces));
+      if (key === "tab") {
+        e.preventDefault();
+        if (e.shiftKey) setSnap((on) => !on);
+        else explainEdit(model.toggleEdit());
+        return;
+      }
+      const editing = model.getSnapshot().edit;
+      if (editing) {
+        if (key === "e") return extrudeModal();
+        if (key === "i") return void (model.inset() || notify(needFaces));
         if (key === "m") return void (model.merge() || notify("합칠 점을 두 개 이상 골라 주세요."));
         if (key === "a") return model.toggleSelectAll();
         if (MODE_KEYS[key]) return model.setSelectMode(MODE_KEYS[key]);
       }
-      if (e.shiftKey) return;
+      if (e.shiftKey) {
+        if (key === "a") {
+          const p = pointer.current;
+          return setSearch({ kind: "add", at: { x: p.x, y: p.y } });
+        }
+        if (key === "d" && !editing) return duplicateModal();
+        if (key === "h" && !editing) return void (model.hideSelected(true) || notify("먼저 남겨 둘 오브젝트를 골라 주세요."));
+        return;
+      }
+      if (MODAL_KEYS[key as keyof typeof MODAL_KEYS]) return startModal(MODAL_KEYS[key as keyof typeof MODAL_KEYS]);
       if (SHORTCUTS[key]) setTool(SHORTCUTS[key]);
       else if (key === "delete" || key === "x") model.removeSelected();
-      else if (key === "g") setSnap((on) => !on);
+      else if (key === "z") cycleShading();
+      else if (key === "h" && !editing) model.hideSelected() || notify("먼저 숨길 오브젝트를 골라 주세요.");
       else if (key === "home") viewport?.resetView();
       else if (key === ".") viewport?.frameSelected();
     };
+    const onKeyUp = (e: KeyboardEvent) => viewport?.modalKeyUp(e);
+    const onMove = (e: MouseEvent) => (pointer.current = { x: e.clientX, y: e.clientY });
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [model, viewport, file, notify]);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("mousemove", onMove);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("mousemove", onMove);
+    };
+  });
 
   const menus: Menu[] = [
     {
@@ -191,9 +280,16 @@ export function App() {
       items: [
         { label: "실행 취소", shortcut: "Ctrl+Z", disabled: !canUndo, onSelect: () => model.undo() },
         { label: "다시 실행", shortcut: "Ctrl+Y", disabled: !canRedo, onSelect: () => model.redo() },
+        { label: "옮기기 (마우스로 바로)", shortcut: "G", disabled: !selected, onSelect: () => startModal("grab") },
+        { label: "돌리기 (마우스로 바로)", shortcut: "R", disabled: !selected, onSelect: () => startModal("rotate") },
+        { label: "늘리기 (마우스로 바로)", shortcut: "S", disabled: !selected, onSelect: () => startModal("scale") },
         { label: "복제", shortcut: "Ctrl+D", disabled: !selected, onSelect: () => model.duplicateSelected() },
+        { label: "복제해서 옮기기", shortcut: "Shift+D", disabled: !selected || !!edit, onSelect: duplicateModal },
         { label: "좌우 대칭 복제 (팔, 다리, 눈 짝 만들기)", shortcut: "Ctrl+M", disabled: !selected, onSelect: () => model.mirrorSelected() },
         { label: "지우기", shortcut: "Delete", disabled: !selected, onSelect: () => model.removeSelected() },
+        { label: "숨기기", shortcut: "H", disabled: !selected || !!edit, onSelect: () => model.hideSelected() },
+        { label: "고른 것만 보기 (나머지 숨기기)", shortcut: "Shift+H", disabled: !selected || !!edit, onSelect: () => model.hideSelected(true) },
+        { label: "숨긴 것 모두 보이기", shortcut: "Alt+H", disabled: !items.some((i) => i.hidden), onSelect: () => model.unhideAll() },
         { label: edit ? "편집 모드 끝내기" : "편집 모드 (점, 선, 면 고치기)", shortcut: "Tab", onSelect: () => explainEdit(model.toggleEdit()) },
       ],
     },
@@ -209,10 +305,15 @@ export function App() {
       label: "보기",
       items: [
         { label: bloom ? "빛 번짐 끄기" : "빛 번짐 켜기", onSelect: () => setBloom(!bloom) },
-        { label: snap ? "칸에 맞춰 움직이기 끄기" : "칸에 맞춰 움직이기 켜기", shortcut: "G", onSelect: () => setSnap(!snap) },
-        { label: "앞에서 보기", shortcut: "숫자패드 1", onSelect: () => viewport?.setView("front") },
-        { label: "옆에서 보기", shortcut: "숫자패드 3", onSelect: () => viewport?.setView("right") },
-        { label: "위에서 보기", shortcut: "숫자패드 7", onSelect: () => viewport?.setView("top") },
+        { label: snap ? "칸에 맞춰 움직이기 끄기" : "칸에 맞춰 움직이기 켜기", shortcut: "Shift+Tab", onSelect: () => setSnap(!snap) },
+        ...SHADINGS.map((s) => ({ label: `보기 방식: ${SHADING_LABEL[s]}${s === shading ? " ✓" : ""}`, onSelect: () => setShading(s) })),
+        { label: ortho ? "원근 보기로 (멀수록 작게)" : "평면 보기로 (치수 맞추기 좋게)", shortcut: "숫자패드 5", onSelect: toggleOrtho },
+        { label: "앞에서 보기", shortcut: "숫자패드 1", onSelect: () => view("front") },
+        { label: "뒤에서 보기", shortcut: "Ctrl+숫자패드 1", onSelect: () => view("back") },
+        { label: "오른쪽에서 보기", shortcut: "숫자패드 3", onSelect: () => view("right") },
+        { label: "왼쪽에서 보기", shortcut: "Ctrl+숫자패드 3", onSelect: () => view("left") },
+        { label: "위에서 보기", shortcut: "숫자패드 7", onSelect: () => view("top") },
+        { label: "아래에서 보기", shortcut: "Ctrl+숫자패드 7", onSelect: () => view("bottom") },
         { label: "처음 시점으로", shortcut: "Home", onSelect: () => viewport?.resetView() },
         { label: "선택한 것 (없으면 전체) 가운데로", shortcut: ".", onSelect: () => viewport?.frameSelected() },
       ],
@@ -220,11 +321,17 @@ export function App() {
     {
       label: "도움말",
       items: [
+        { label: "기능 검색", shortcut: "F3", onSelect: () => setSearch({ kind: "all" }) },
         { label: "따라하기 안내 다시 보기", onSelect: tour.start },
         { label: "단축키 보기", onSelect: () => window.alert(SHORTCUT_HELP) },
         { label: "업데이트 확인", onSelect: () => void updater.check(true) },
       ],
     },
+  ];
+
+  const addCommands: Command[] = [
+    ...SHAPES.map((sh) => ({ label: sh.label, group: "도형", onSelect: () => model.add(sh.kind) })),
+    ...EFFECTS.map((fx) => ({ label: fx.label, group: "이펙트", onSelect: () => model.addEffect(fx.type) })),
   ];
 
   return (
@@ -265,10 +372,19 @@ export function App() {
             ) : (
               <ul className="outliner">
                 {items.map((item) => (
-                  <li key={item.id}>
+                  <li key={item.id} className={item.hidden ? "is-hidden" : undefined}>
                     <button aria-pressed={item.id === selectedId} onClick={() => model.select(item.id)}>
                       <span className="outliner-swatch" style={{ background: item.color }} />
                       {item.name}
+                    </button>
+                    <button
+                      className="outliner-eye"
+                      title={item.hidden ? "다시 보이기" : "숨기기 (H)"}
+                      aria-label={item.hidden ? `${item.name} 보이기` : `${item.name} 숨기기`}
+                      aria-pressed={!item.hidden}
+                      onClick={() => model.setHidden(item.id, !item.hidden)}
+                    >
+                      {item.hidden ? "◌" : "👁"}
                     </button>
                   </li>
                 ))}
@@ -297,7 +413,9 @@ export function App() {
             {dirty ? "● " : ""}
             {file.name}
           </span>
-          {snap && <span>칸 맞춤 켜짐 (G)</span>}
+          {snap && <span>칸 맞춤 켜짐 (Shift+Tab)</span>}
+          {shading !== "solid" && <span>{SHADING_LABEL[shading]} (Z)</span>}
+          {ortho && <span>평면 보기 (숫자패드 5)</span>}
           <span title="화면에 그려지는 삼각형 수예요. 게임에 넣을 때는 적을수록 가벼워요.">
             삼각형 {model.allMeshes().filter((m) => m.userData.kind !== "effect").reduce((n, m) => n + triangleCount(m), 0).toLocaleString()}개
           </span>
@@ -319,11 +437,25 @@ export function App() {
         {edit && <Segmented label="고르는 단위" value={edit.mode} onChange={(m) => model.setSelectMode(m)} options={SELECT_MODES} />}
       </div>
       <div className="view-buttons" role="group" aria-label="시점">
-        <button title="앞에서 보기 (숫자패드 1)" onClick={() => viewport?.setView("front")}>앞</button>
-        <button title="옆에서 보기 (숫자패드 3)" onClick={() => viewport?.setView("right")}>옆</button>
-        <button title="위에서 보기 (숫자패드 7)" onClick={() => viewport?.setView("top")}>위</button>
+        <button title="앞에서 보기 (숫자패드 1)" onClick={() => view("front")}>앞</button>
+        <button title="옆에서 보기 (숫자패드 3)" onClick={() => view("right")}>옆</button>
+        <button title="위에서 보기 (숫자패드 7)" onClick={() => view("top")}>위</button>
+        <button title={ortho ? "원근 보기로 (숫자패드 5)" : "평면 보기로 (숫자패드 5)"} aria-pressed={ortho} onClick={toggleOrtho}>
+          {ortho ? "평면" : "원근"}
+        </button>
+        <button title={`보기 방식: ${SHADING_LABEL[shading]} (Z 로 바꾸기)`} aria-pressed={shading !== "solid"} onClick={cycleShading}>
+          {shading === "solid" ? "◼" : shading === "wire" ? "◻" : "◧"}
+        </button>
         <button title="처음 시점으로 (Home)" onClick={() => viewport?.resetView()}>⌂</button>
       </div>
+      <CommandSearch
+        open={search !== null}
+        title={search?.kind === "add" ? "추가" : undefined}
+        placeholder={search?.kind === "add" ? "넣을 것 (예: 구, 불꽃)" : undefined}
+        at={search?.kind === "add" ? search.at : null}
+        commands={search?.kind === "add" ? addCommands : menuCommands(menus)}
+        onClose={() => setSearch(null)}
+      />
       <Toast message={toast} />
       <Tour steps={TOUR_STEPS} open={tour.open} onFinish={tour.finish} />
     </AppFrame>
