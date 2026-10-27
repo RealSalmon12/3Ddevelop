@@ -520,6 +520,34 @@ export function App() {
     if (target !== undefined) seek(target);
   };
 
+  /** 마커를 유튜브 설명란에 붙일 챕터 목록으로 (0:00 부터, 3개 이상, 10초 이상씩이어야 유튜브가 챕터로 보여 준다) */
+  const copyChapters = async () => {
+    const sorted = [...project.markers].sort((a, b) => a.t - b.t);
+    const list = sorted[0] && sorted[0].t < 0.5 ? sorted.map((m) => ({ t: m.t, label: m.label })) : [{ t: 0, label: "시작" }, ...sorted.map((m) => ({ t: m.t, label: m.label }))];
+    const stamp = (t: number) => {
+      const s = Math.floor(t);
+      const h = Math.floor(s / 3600);
+      const mm = Math.floor((s % 3600) / 60);
+      const ss = String(s % 60).padStart(2, "0");
+      return h ? `${h}:${String(mm).padStart(2, "0")}:${ss}` : `${mm}:${ss}`;
+    };
+    const text = list.map((c, i) => `${i === 0 ? "0:00" : stamp(c.t)} ${c.label}`).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      window.prompt("이 글을 복사해 유튜브 설명란에 붙여 넣어요", text);
+      return;
+    }
+    const short = list.some((c, i) => i > 0 && c.t - list[i - 1].t < 10) || (duration > 0 && duration - list[list.length - 1].t < 10);
+    notify(
+      list.length < 3
+        ? "복사했어요. 유튜브는 챕터가 3개 이상이어야 보여 줘요. 마커를 더 넣어 보세요."
+        : short
+          ? "복사했어요. 10초보다 짧은 챕터가 있으면 유튜브가 챕터를 안 보여 줄 수 있어요."
+          : `챕터 ${list.length}개를 복사했어요. 유튜브 설명란에 붙여 넣으세요 (마커를 두 번 누르면 이름을 바꿔요).`,
+    );
+  };
+
   const addMarker = () =>
     history.set((p) => ({ ...p, markers: [...p.markers, { id: newId(), t: time, label: `마커 ${p.markers.length + 1}`, color: "#4fd1c5" }] }));
 
@@ -712,6 +740,7 @@ export function App() {
         { label: "끝 표시 (Out)", shortcut: "O", onSelect: () => history.set((p) => ({ ...p, outPoint: time })) },
         { label: "시작·끝 표시 지우기", disabled: project.inPoint === null && project.outPoint === null, onSelect: () => history.set((p) => ({ ...p, inPoint: null, outPoint: null })) },
         { label: "마커 넣기", shortcut: "M", onSelect: addMarker },
+        { label: "마커로 유튜브 챕터 만들기 (복사)", disabled: !project.markers.length, onSelect: () => void copyChapters() },
         { label: `스냅 (자석) ${snapping ? "끄기" : "켜기"}`, shortcut: "S", onSelect: () => setSnapping(!snapping) },
         { label: "선택 도구", shortcut: "V", onSelect: () => setTool("select") },
         { label: "자르기 도구", shortcut: "C", onSelect: () => setTool("razor") },

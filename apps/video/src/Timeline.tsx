@@ -258,11 +258,15 @@ export function Timeline(props: TimelineProps) {
               <div
                 key={m.id}
                 className="tl-marker"
-                title={`${m.label} (오른쪽 클릭: 지우기)`}
+                title={`${m.label} (두 번 클릭: 이름 바꾸기 · 오른쪽 클릭: 지우기)`}
                 style={{ left: m.t * pxPerSec, background: m.color }}
                 onPointerDown={(e) => {
                   e.stopPropagation();
                   props.onSeek(m.t);
+                }}
+                onDoubleClick={() => {
+                  const label = window.prompt("마커 이름 (유튜브 챕터 제목이 돼요)", m.label)?.trim();
+                  if (label) props.set({ ...project, markers: project.markers.map((x) => (x.id === m.id ? { ...x, label } : x)) });
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
