@@ -236,3 +236,23 @@
 .source-list li { display: flex; justify-content: space-between; gap: 6px; padding: 5px 8px; border-radius: 4px; background: var(--bg); font-size: 12px; cursor: grab; }
 .source-list li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-list small { color: var(--text-dim); font-family: ui-monospace, Consolas, monospace; }
+.record-dialog { width: min(520px, calc(100% - 40px)); }
+.rec-checks { display: flex; gap: 18px; }
+.rec-meters { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; margin: 6px 0 8px; }
+.rec-meter-row { grid-column: 1; display: grid; grid-template-columns: 34px 1fr 32px; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
+.rec-meter-row b { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+.rec-meter { position: relative; height: 12px; border-radius: 3px; overflow: hidden; background: linear-gradient(90deg, rgba(60, 200, 110, 0.18) 0 75%, rgba(240, 200, 60, 0.2) 75% 90%, rgba(240, 70, 70, 0.22) 90%); }
+.rec-meter-fill { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #3cc86e 0 75%, #f0c83c 75% 90%, #f04646 90%); background-size: 100cqw 100%; transition: width 40ms linear; }
+.rec-meter { container-type: inline-size; }
+.rec-meter-hold { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; opacity: 0.85; }
+.rec-clip { grid-column: 2; grid-row: 1 / span 2; padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(255, 255, 255, 0.05); color: var(--text-dim); font-size: 11px; font-weight: 700; cursor: pointer; }
+.rec-clip.on { background: #e03a3a; color: #fff; border-color: transparent; }
+.rec-stage { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; padding: 8px; border-radius: 8px; background: rgba(0, 0, 0, 0.3); }
+.rec-stage canvas { width: 100%; height: 64px; }
+.rec-time { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; }
+.rec-time b { font-size: 22px; letter-spacing: -0.02em; }
+.rec-time span { font-size: 12px; color: var(--text-dim); }
+.rec-count { color: #ff5c5c; font-size: 30px !important; }
+.rec-quality { margin: 0; font-size: 12px; }
+.suite-button.rec-start { background: #e03a3a; }
+.suite-button.rec-stop { background: #f2f3f5; color: #1b1e26; }
