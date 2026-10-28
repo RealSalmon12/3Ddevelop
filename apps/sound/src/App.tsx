@@ -25,6 +25,7 @@ import { AI_SYSTEM, AI_TOOL, toSfx } from "./ai";
 import { RackPanel, Knob } from "./Rack";
 import { Wave, clampView, timeLabel, type Marker, type View } from "./Wave";
 import { MultitrackSidebar, MultitrackView, useMultitrack } from "./Multitrack";
+import { applyRecording, RecordDialog, type RecordResult } from "./Recorder";
 
 const TOUR_STEPS: TourStep[] = [
   { title: "바코 파도에 오신 걸 환영해요! 👋", body: "목소리, 음악, 게임 효과음을 전문 오디오 편집기처럼 다듬는 곳이에요. 녹음하거나 소리 파일을 끌어다 놓아 보세요." },
@@ -57,7 +58,7 @@ interface DialogSpec {
   run: (s: A.Sound, r: A.Range, v: Record<string, number | string>) => A.Sound | Promise<A.Sound>;
 }
 
-type DialogState = { kind: "params"; spec: DialogSpec } | { kind: "export" } | null;
+type DialogState = { kind: "params"; spec: DialogSpec } | { kind: "export" } | { kind: "record" } | null;
 
 interface ExportOptions {
   bits: 16 | 24 | 32;
@@ -287,7 +288,6 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [clipboard, setClipboard] = useState<A.Sound | null>(null);
   const [sfx, setSfx] = useState<A.SfxParams>(A.SFX_PRESETS[0].params);
-  const [recording, setRecording] = useState<MediaRecorder | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [sfxOpen, setSfxOpen] = useState(false);
   const [name, setName] = useState("제목 없음");
@@ -596,24 +596,31 @@ export function App() {
     } else if (r.reason === "error") notify(`저장하지 못했어요. ${r.message ?? ""}`);
   };
 
-  const record = async () => {
-    if (recording) return recording.stop();
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-      const rec = new MediaRecorder(stream);
-      const chunks: Blob[] = [];
-      rec.ondataavailable = (e) => chunks.push(e.data);
-      rec.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        setRecording(null);
-        await loadBytes(await new Blob(chunks).arrayBuffer(), "녹음");
-      };
-      stop();
-      rec.start();
-      setRecording(rec);
-    } catch {
-      notify("마이크를 쓸 수 없어요. 마이크가 연결되어 있는지, Windows 설정에서 마이크를 허용했는지 봐 주세요.");
+  const record = () => {
+    stop();
+    setDialog({ kind: "record" });
+  };
+
+  /** 녹음 창에서 멈추면: 고른 방법대로 넣고, 녹음한 자리를 골라 둔다 */
+  const recorded = (r: RecordResult) => {
+    const cur = history.get();
+    if (r.mode === "new" && A.lengthOf(cur) && history.dirty && !window.confirm("저장하지 않은 소리가 사라져요. 녹음을 새 파일로 열까요?")) return;
+    const next = applyRecording(cur, r, D.insertAt);
+    const len = Math.round((A.lengthOf(r.clip) * next.sampleRate) / r.clip.sampleRate);
+    if (r.mode === "new" || !A.lengthOf(cur)) {
+      history.reset(next);
+      setName("녹음");
+      setPath(undefined);
+      setMarkers([]);
+      setExportOpts((o) => ({ ...o, rate: next.sampleRate }));
+      setSelection({ start: 0, end: len });
+    } else {
+      history.set(next);
+      setSelection(r.range ?? { start: r.at, end: r.at + len });
     }
+    setDialog(null);
+    const how = { new: "새 파일로", insert: "커서 자리에 끼워", overwrite: "커서부터 덮어써서", punch: "고른 구간을 바꿔" }[r.mode];
+    notify(`${A.secondsOf(r.clip).toFixed(1)}초 녹음해서 ${how} 넣었어요. 마음에 안 들면 Ctrl+Z.`);
   };
 
   const newEmpty = () => {
@@ -936,7 +943,7 @@ export function App() {
         playing.current ? stop() : play();
       } else if (key === "delete" || key === "backspace") del();
       else if (key === "escape") setSelection(null);
-      else if (key === "r") void record();
+      else if (key === "r") record();
       else if (key === "l") setLoop((v) => !v);
       else if (key === "m") addMarker();
       else if (key === "d" && e.shiftKey) setSpectral((v) => !v);
@@ -977,7 +984,7 @@ export function App() {
         { label: "새로 만들기", shortcut: "Ctrl+N", onSelect: newEmpty },
         { label: "열기…", shortcut: "Ctrl+O", onSelect: () => void open(true) },
         { label: "커서 자리에 파일 넣기…", shortcut: "Ctrl+Shift+O", onSelect: () => void open(false) },
-        { label: recording ? "녹음 멈추기" : "커서 자리에 녹음", shortcut: "R", onSelect: () => void record() },
+        { label: "녹음… (입력 장치, 미터, 펀치 인)", shortcut: "R", onSelect: record },
         { label: "저장 (WAV)", shortcut: "Ctrl+S", onSelect: () => void exportWav(exportOpts, false) },
         { label: "내보내기 설정…", shortcut: "Ctrl+Shift+S", onSelect: () => setDialog({ kind: "export" }) },
       ],
@@ -1315,7 +1322,7 @@ export function App() {
             <button className="play" title="재생 / 멈춤 (Space)" onClick={() => (playing.current ? stop() : play())}>
               {playhead !== null ? "■" : "▶"}
             </button>
-            <button className={recording ? "rec on" : "rec"} title="커서 자리에 녹음 (R)" onClick={() => void record()}>
+            <button className={dialog?.kind === "record" ? "rec on" : "rec"} title="녹음 (R)" onClick={record}>
               ●
             </button>
             <button title="끝으로 (End)" onClick={() => (setCursor(n), setSelection(null), stop())}>
@@ -1411,6 +1418,9 @@ export function App() {
       )}
       {dialog?.kind === "export" && (
         <ExportDialog sound={sound} selection={selection} initial={exportOpts} onClose={() => setDialog(null)} onExport={(o) => void exportWav(o, true)} />
+      )}
+      {dialog?.kind === "record" && (
+        <RecordDialog context={ctx()} sound={sound} cursor={cursor} selection={selection} onDone={recorded} onClose={() => setDialog(null)} />
       )}
       <CommandSearch open={searchOpen} commands={menuCommands(shownMenus)} onClose={() => setSearchOpen(false)} />
       <Toast message={toast} />
