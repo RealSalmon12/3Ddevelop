@@ -20,6 +20,7 @@ import {
 } from "@suite/ui";
 import { AI_SYSTEM, AI_TOOL, aiContext, applyAICaptions } from "./ai";
 import { Scopes } from "./Scopes";
+import { trackMotion } from "./tracker";
 import { EffectControls } from "./EffectControls";
 import { Engine, exportFormats } from "./engine";
 import { canExportExact, exportExact } from "./exactExport";
@@ -102,6 +103,7 @@ export function App() {
   const [scopesOpen, setScopesOpen] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState<{ ratio: number; signal: { cancel: boolean }; exact?: boolean } | null>(null);
+  const [tracking, setTracking] = useState<{ ratio: number; signal: { cancel: boolean } } | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
@@ -548,6 +550,58 @@ export function App() {
     );
   };
 
+  /** 모션 트래킹: 고른 클립이 그 아래 영상 속 물체를 따라가게 위치 키프레임을 만든다 */
+  const runTracking = async (boxFrac: number) => {
+    const c = focus;
+    const e = engine.current;
+    if (!c || !e || !isVisual(c) || c.kind === "adjust") return notify("따라 움직일 글자, 사진, 영상 클립을 하나 골라 주세요.");
+    if (time < c.start || time >= clipEnd(c) - 1 / project.sequence.fps) return notify("재생 위치를 그 클립이 보이는 곳에 두고, 클립을 따라갈 물체 위에 올려 둔 다음 해 주세요.");
+    e.stop();
+    const from = time;
+    const signal = { cancel: false };
+    setTracking({ ratio: 0, signal });
+    // 클립 자신은 빼고 그 아래 화면에서 찾는다
+    e.setProject({ ...project, clips: project.clips.filter((x) => x.id !== c.id) });
+    try {
+      const r = await trackMotion(e, project, c, from, boxFrac, (ratio) => setTracking({ ratio, signal }), signal);
+      if (r.keys.length < 2) {
+        notify(signal.cancel ? "멈췄어요." : "바로 다음 프레임에서 물체를 놓쳤어요. 물체 크기를 바꾸거나 무늬가 뚜렷한 곳에서 다시 해 주세요.");
+        return;
+      }
+      const local0 = from - c.start;
+      const merge = (old: { t: number; v: number }[] | undefined, fresh: { t: number; v: number }[]) => [...(old ?? []).filter((k) => k.t < local0 - 1e-4), ...fresh];
+      history.set((p) => ({
+        ...p,
+        clips: p.clips.map((x) =>
+          x.id === c.id
+            ? {
+                ...x,
+                params: {
+                  ...x.params,
+                  x: { value: r.keys[0].x, keys: merge(x.params.x.keys, r.keys.map((k) => ({ t: k.t, v: k.x }))) },
+                  y: { value: r.keys[0].y, keys: merge(x.params.y.keys, r.keys.map((k) => ({ t: k.t, v: k.y }))) },
+                },
+              }
+            : x,
+        ),
+      }));
+      const secs = (r.keys[r.keys.length - 1].t - r.keys[0].t).toFixed(1);
+      notify(
+        r.lostAt !== null
+          ? `${secs}초 동안 따라가다 물체를 놓쳤어요 (가려졌거나 너무 빨라요). 거기서부터 다시 하면 이어서 따라가요.`
+          : signal.cancel
+            ? `${secs}초까지 따라갔어요.`
+            : `${secs}초 동안 물체를 따라가요 (위치 키프레임 ${r.keys.length}개). 효과 컨트롤에서 고칠 수 있어요.`,
+      );
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err));
+    } finally {
+      e.setProject(history.get());
+      e.seek(from);
+      setTracking(null);
+    }
+  };
+
   const addMarker = () =>
     history.set((p) => ({ ...p, markers: [...p.markers, { id: newId(), t: time, label: `마커 ${p.markers.length + 1}`, color: "#4fd1c5" }] }));
 
@@ -731,6 +785,8 @@ export function App() {
         { label: "글자 넣기", shortcut: "Ctrl+T", onSelect: () => addGenerated("text") },
         { label: "색 매트 넣기", onSelect: () => addGenerated("color") },
         { label: "조정 레이어 넣기", onSelect: () => addGenerated("adjust") },
+        { label: "모션 트래킹: 작은 물체 따라가기 (얼굴, 공)", disabled: !focus, onSelect: () => void runTracking(0.06) },
+        { label: "모션 트래킹: 큰 물체 따라가기 (사람, 차)", disabled: !focus, onSelect: () => void runTracking(0.14) },
       ],
     },
     {
@@ -1070,6 +1126,22 @@ export function App() {
         />
       )}
 
+      {tracking && (
+        <div className="dialog-dim">
+          <div className="dialog export-box">
+            <h2>물체를 따라가고 있어요… {Math.round(tracking.ratio * 100)}%</h2>
+            <p>프레임마다 클립 아래의 물체를 찾아서 위치 키프레임을 만들어요. 중간에 멈춰도 거기까지는 남아요.</p>
+            <div className="bar">
+              <div style={{ width: `${tracking.ratio * 100}%` }} />
+            </div>
+            <div className="dialog-buttons">
+              <button className="mini" onClick={() => (tracking.signal.cancel = true)}>
+                멈추기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {exporting && (
         <div className="dialog-dim">
           <div className="dialog export-box">
