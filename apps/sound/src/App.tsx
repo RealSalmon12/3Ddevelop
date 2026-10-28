@@ -26,6 +26,7 @@ import { RackPanel, Knob } from "./Rack";
 import { Wave, clampView, timeLabel, type Marker, type View } from "./Wave";
 import { MultitrackSidebar, MultitrackView, useMultitrack } from "./Multitrack";
 import { applyRecording, RecordDialog, type RecordResult } from "./Recorder";
+import { BatchDialog } from "./BatchDialog";
 
 const TOUR_STEPS: TourStep[] = [
   { title: "바코 파도에 오신 걸 환영해요! 👋", body: "목소리, 음악, 게임 효과음을 전문 오디오 편집기처럼 다듬는 곳이에요. 녹음하거나 소리 파일을 끌어다 놓아 보세요." },
@@ -58,7 +59,7 @@ interface DialogSpec {
   run: (s: A.Sound, r: A.Range, v: Record<string, number | string>) => A.Sound | Promise<A.Sound>;
 }
 
-type DialogState = { kind: "params"; spec: DialogSpec } | { kind: "export" } | { kind: "record" } | null;
+type DialogState = { kind: "params"; spec: DialogSpec } | { kind: "export" } | { kind: "record" } | { kind: "batch" } | null;
 
 interface ExportOptions {
   bits: 16 | 24 | 32;
@@ -987,6 +988,7 @@ export function App() {
         { label: "녹음… (입력 장치, 미터, 펀치 인)", shortcut: "R", onSelect: record },
         { label: "저장 (WAV)", shortcut: "Ctrl+S", onSelect: () => void exportWav(exportOpts, false) },
         { label: "내보내기 설정…", shortcut: "Ctrl+Shift+S", onSelect: () => setDialog({ kind: "export" }) },
+        { label: "일괄 처리 (여러 파일 한 번에)…", onSelect: () => (stop(), setDialog({ kind: "batch" })) },
       ],
     },
     {
@@ -1419,6 +1421,7 @@ export function App() {
       {dialog?.kind === "export" && (
         <ExportDialog sound={sound} selection={selection} initial={exportOpts} onClose={() => setDialog(null)} onExport={(o) => void exportWav(o, true)} />
       )}
+      {dialog?.kind === "batch" && <BatchDialog rack={rack} decode={async (bytes) => A.fromAudioBuffer(await ctx().decodeAudioData(bytes))} onClose={() => setDialog(null)} notify={notify} />}
       {dialog?.kind === "record" && (
         <RecordDialog context={ctx()} sound={sound} cursor={cursor} selection={selection} onDone={recorded} onClose={() => setDialog(null)} />
       )}
