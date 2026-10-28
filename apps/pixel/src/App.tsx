@@ -26,6 +26,7 @@ import { MAX_FRAMES, MAX_LAYERS, PixelDoc } from "./doc/PixelDoc";
 import { clearMasked, cutOut, flipRaster, outline, quantize, replaceColor, rotateRaster, shiftMask, stampRaster, type Raster } from "./doc/raster";
 import { AdjustDialog, ExportDialog, RotateDialog, SizeDialog } from "./Dialogs";
 import { NewFileDialog } from "./NewFileDialog";
+import { TilemapEditor } from "./TilemapEditor";
 import { ColorPanel } from "./panels/ColorPanel";
 import { PreviewPanel } from "./panels/PreviewPanel";
 import { Timeline } from "./panels/Timeline";
@@ -57,7 +58,7 @@ const SYMMETRY: { value: Symmetry; label: string }[] = [
   { value: "both", label: "✣ 네 방향" },
 ];
 
-type DialogKind = "new" | "export" | "size" | "adjust" | "rotate" | null;
+type DialogKind = "new" | "export" | "size" | "adjust" | "rotate" | "tilemap" | null;
 
 export function App() {
   const doc = useMemo(() => new PixelDoc(16, 16), []);
@@ -308,6 +309,7 @@ export function App() {
       label: "스프라이트",
       items: [
         { label: "크기 바꾸기 (캔버스 / 그림)…", onSelect: () => setDialog("size") },
+        { label: "타일맵 편집기 (게임 지도 만들기)…", onSelect: () => setDialog("tilemap") },
         { label: "아무 각도로 돌리기 (RotSprite)…", shortcut: "Ctrl+Shift+R", onSelect: () => (doc.activeLayer.locked ? notify("잠긴 레이어예요.") : setDialog("rotate")) },
         { label: "오른쪽으로 90도 돌리기", onSelect: () => doc.transformAll((r) => rotateRaster(r, true), doc.height, doc.width) },
         { label: "왼쪽으로 90도 돌리기", onSelect: () => doc.transformAll((r) => rotateRaster(r, false), doc.height, doc.width) },
@@ -541,6 +543,7 @@ export function App() {
       )}
       {dialog === "size" && <SizeDialog doc={doc} notify={notify} onClose={() => (setDialog(null), fitView())} />}
       {dialog === "adjust" && <AdjustDialog doc={doc} onClose={() => setDialog(null)} />}
+      {dialog === "tilemap" && <TilemapEditor doc={doc} name={file.name} onClose={() => setDialog(null)} notify={notify} />}
       {dialog === "rotate" && <RotateDialog doc={doc} onClose={() => setDialog(null)} />}
       <CommandSearch open={searchOpen} commands={menuCommands(menus)} onClose={() => setSearchOpen(false)} />
       <Toast message={toast} />

@@ -280,3 +280,38 @@ tr.current .tl-name { color: var(--accent); font-weight: 700; }
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* 타일맵 편집기 */
+.tilemap-editor { position: fixed; inset: 0; z-index: 60; display: grid; grid-template-columns: 300px 1fr; background: var(--bg); }
+.tm-side { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; overflow: auto; background: var(--bg-panel); border-right: 1px solid var(--border); font-size: 12px; }
+.tm-title { display: flex; align-items: baseline; gap: 8px; }
+.tm-title b { font-size: 16px; }
+.tm-title span { color: var(--text-dim); }
+.tm-row { display: flex; align-items: center; gap: 6px; color: var(--text-dim); }
+.tm-row > span:first-child { flex: 1; }
+.tm-row select, .tm-row input { height: 26px; padding: 0 6px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-s); font: inherit; }
+.tm-row input { width: 58px; }
+.tm-tileset-wrap { max-height: 300px; overflow: auto; padding: 6px; background: repeating-conic-gradient(#2b2f3b 0 25%, #232631 0 50%) 0 0 / 12px 12px; border: 1px solid var(--border); border-radius: var(--radius-s); }
+.tm-tileset { display: block; image-rendering: pixelated; cursor: pointer; }
+.tm-note { margin: 0; color: var(--text-dim); font-size: 11px; line-height: 1.45; }
+.tm-tools { display: flex; flex-wrap: wrap; gap: 3px; }
+.tm-tools button, .tm-head button { min-width: 30px; height: 28px; border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--bg); color: var(--text); cursor: pointer; }
+.tm-tools button[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 30%, var(--bg)); border-color: var(--accent); }
+.tm-head { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+.tm-head b { flex: 1; }
+.tm-head button { min-width: 24px; height: 22px; font-size: 11px; }
+.tm-head button:disabled { opacity: 0.4; }
+.tm-layers { margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--bg); }
+.tm-layers li { display: flex; align-items: center; gap: 6px; padding: 3px 6px; cursor: pointer; }
+.tm-layers li.on { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.tm-layers li button { width: 22px; border: 0; background: none; color: var(--text-dim); cursor: pointer; }
+.tm-layers li span { flex: 1; }
+.tm-btn { height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--bg); color: var(--text); font: inherit; cursor: pointer; white-space: nowrap; }
+.tm-btn:hover { border-color: var(--accent); }
+.tm-actions { display: flex; gap: 6px; align-items: center; margin-top: auto; padding-top: 10px; }
+.tm-actions > span { flex: 1; }
+.tm-stage { position: relative; overflow: hidden; background: #12141b; }
+.tm-map { display: block; cursor: crosshair; }
+.tm-map.pan { cursor: grab; }
+.tm-hint { position: absolute; left: 12px; bottom: 10px; right: 12px; color: #6b7287; font-size: 11px; pointer-events: none; }
+.tm-flags { position: absolute; top: 10px; right: 14px; font-size: 16px; pointer-events: none; }
