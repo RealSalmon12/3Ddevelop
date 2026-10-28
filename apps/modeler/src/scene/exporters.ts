@@ -28,7 +28,11 @@ export async function exportScene(
     .forEach((c) => {
       // 화면에서 숨긴 것(H)도 내보낸다. 숨기기는 작업할 때 잠깐 치워 두는 것이라서.
       // 자식(편집 표시, 와이어프레임 선)은 빼고 모양만 복사한다.
+      // userData(편집용 모양, 칠하기 그림 등)는 복사하지 않는다. 그대로 두면 GLB 의 extras 로 들어가 파일이 아주 커진다.
+      const saved = c.userData;
+      c.userData = {};
       const copy = c.clone(false);
+      c.userData = saved;
       copy.visible = true;
       root.add(copy);
       if (c.userData.keys) animated.push([c.userData.keys as Keyframe[], copy]);

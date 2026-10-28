@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { dot, faceNormal, type PolyMesh, type Vec3 } from "./PolyMesh";
+import type { FaceUVs } from "./uv";
 
 /** 이 각도보다 완만하게 꺾인 면끼리는 부드럽게 이어 보이게 한다 (구, 원기둥 옆면 등). */
 export const AUTO_SMOOTH_DEGREES = 40;
@@ -8,7 +9,7 @@ export const AUTO_SMOOTH_DEGREES = 40;
  * PolyMesh 를 three.js 가 그릴 수 있는 삼각형 묶음으로 바꾼다.
  * userData.triangleFace[t] 는 t 번째 삼각형이 원래 몇 번 면인지 (편집 모드에서 클릭한 면 찾기에 쓴다).
  */
-export function buildGeometry(mesh: PolyMesh, smoothDegrees = AUTO_SMOOTH_DEGREES): THREE.BufferGeometry {
+export function buildGeometry(mesh: PolyMesh, smoothDegrees = AUTO_SMOOTH_DEGREES, uvs?: FaceUVs): THREE.BufferGeometry {
   const normals = mesh.faces.map((face) => faceNormal(mesh, face));
 
   // 점마다 그 점을 쓰는 면 목록
@@ -32,13 +33,16 @@ export function buildGeometry(mesh: PolyMesh, smoothDegrees = AUTO_SMOOTH_DEGREE
   const positions: number[] = [];
   const vertexNormals: number[] = [];
   const triangleFace: number[] = [];
+  const uv: number[] = [];
 
   mesh.faces.forEach((face, f) => {
     // 볼록한 다각형은 첫 점에서 부채꼴로 나누면 된다.
     for (let i = 1; i < face.length - 1; i++) {
-      for (const v of [face[0], face[i], face[i + 1]]) {
+      for (const k of [0, i, i + 1]) {
+        const v = face[k];
         positions.push(...mesh.vertices[v]);
         vertexNormals.push(...cornerNormal(f, v));
+        if (uvs) uv.push(...uvs[f][k]);
       }
       triangleFace.push(f);
     }
@@ -47,6 +51,7 @@ export function buildGeometry(mesh: PolyMesh, smoothDegrees = AUTO_SMOOTH_DEGREE
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute("normal", new THREE.Float32BufferAttribute(vertexNormals, 3));
+  if (uvs) geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
   geometry.normalizeNormals();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
