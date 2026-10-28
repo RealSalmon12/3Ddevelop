@@ -34,6 +34,8 @@ export function buildGeometry(mesh: PolyMesh, smoothDegrees = AUTO_SMOOTH_DEGREE
   const vertexNormals: number[] = [];
   const triangleFace: number[] = [];
   const uv: number[] = [];
+  /** 삼각형 꼭짓점마다 원래 점 번호 (뼈대 가중치를 붙일 때) */
+  const cornerVertex: number[] = [];
 
   mesh.faces.forEach((face, f) => {
     // 볼록한 다각형은 첫 점에서 부채꼴로 나누면 된다.
@@ -41,6 +43,7 @@ export function buildGeometry(mesh: PolyMesh, smoothDegrees = AUTO_SMOOTH_DEGREE
       for (const k of [0, i, i + 1]) {
         const v = face[k];
         positions.push(...mesh.vertices[v]);
+        cornerVertex.push(v);
         vertexNormals.push(...cornerNormal(f, v));
         if (uvs) uv.push(...uvs[f][k]);
       }
@@ -56,5 +59,6 @@ export function buildGeometry(mesh: PolyMesh, smoothDegrees = AUTO_SMOOTH_DEGREE
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   geometry.userData.triangleFace = triangleFace;
+  geometry.userData.cornerVertex = cornerVertex;
   return geometry;
 }
