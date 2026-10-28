@@ -21,6 +21,7 @@ import { EFFECTS, ParticleSystem, type EffectSettings, type EffectType } from ".
 import { createShape, SHAPES, type ShapeKind } from "./shapes";
 import { smartUnwrap, uvFits, type FaceUVs } from "../mesh/uv";
 import { PaintTexture, uvLayoutCanvas } from "../mesh/texturePaint";
+import { autoWeights, chainRig, cloneRig, deform, extrudeBone, humanRig, isRestPose, mirrorName, type Bone, type Rig, type Weights } from "../mesh/rig";
 import { cloneKeys, DEFAULT_ANIM, sampleKeys, upsertKey, type AnimSettings, type Interp, type Keyframe } from "./animation";
 
 
@@ -65,6 +66,8 @@ export interface ObjectData {
   uv?: FaceUVs;
   /** 칠한 그림 (PNG data URL) */
   texture?: string;
+  /** 뼈대 (리깅)와 지금 포즈 */
+  rig?: Rig;
 }
 
 export type SmoothMode = "auto" | "smooth" | "flat";
@@ -217,6 +220,11 @@ export class ModelerScene {
       mesh.position.fromArray(pose.position);
       mesh.rotation.set(...pose.rotation);
       mesh.scale.fromArray(pose.scale);
+      const rig = mesh.userData.rig as Rig | undefined;
+      if (rig && pose.bones) {
+        rig.pose = Object.fromEntries(Object.entries(pose.bones).map(([k, v]) => [k, [...v] as Vec3]));
+        if (mesh.userData.geometryKey !== modifierKey(mesh)) rebuildGeometry(mesh);
+      }
     }
   }
 
@@ -245,7 +253,14 @@ export class ModelerScene {
   }
 
   private poseKey(mesh: THREE.Mesh): Keyframe {
-    return { frame: this.frame, position: vec(mesh.position), rotation: vec(mesh.rotation), scale: vec(mesh.scale) };
+    const rig = mesh.userData.rig as Rig | undefined;
+    return {
+      frame: this.frame,
+      position: vec(mesh.position),
+      rotation: vec(mesh.rotation),
+      scale: vec(mesh.scale),
+      ...(rig ? { bones: Object.fromEntries(rig.bones.map((b) => [b.id, (rig.pose[b.id] ?? [0, 0, 0]).map(round) as Vec3])) } : {}),
+    };
   }
 
   /** I: 고른 오브젝트의 지금 모습을 이 프레임에 기록 */
@@ -315,7 +330,8 @@ export class ModelerScene {
     const now = this.poseKey(mesh);
     const same = (a?: Vec3, b?: Vec3) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) < 1e-4);
     if (!prev) return; // 막 만든 오브젝트에는 넣지 않는다
-    if (same(prev.position, now.position) && same(prev.rotation, now.rotation) && same(prev.scale, now.scale)) return;
+    const sameBones = JSON.stringify(prev.rig?.pose ?? {}) === JSON.stringify((mesh.userData.rig as Rig | undefined)?.pose ?? {});
+    if (same(prev.position, now.position) && same(prev.rotation, now.rotation) && same(prev.scale, now.scale) && sameBones) return;
     mesh.userData.keys = upsertKey(mesh.userData.keys as Keyframe[] | undefined, now);
   }
 
@@ -824,6 +840,138 @@ export class ModelerScene {
   }
 
   /** Ctrl+0~3: 고른 오브젝트를 매끈하게 하는 단계 */
+  // ---------- 뼈대 (리깅) ----------
+
+  getRig(id: string | null): Rig | null {
+    return (this.getMesh(id)?.userData.rig as Rig | undefined) ?? null;
+  }
+
+  /** 뼈대 넣기: 사람 모양이나 사슬. 이미 있으면 바꾼다 */
+  addRig(id: string | null, kind: "human" | "chain", count = 4): Bone[] | null {
+    const mesh = this.getMesh(id);
+    if (!mesh || mesh.userData.kind === "effect") return null;
+    this.exitEditSilently();
+    const rest = restDisplay(mesh);
+    const bones = kind === "human" ? humanRig(rest) : chainRig(rest, count);
+    mesh.userData.rig = { bones, pose: {} } satisfies Rig;
+    // 예전 포즈 키는 다른 뼈 것이라 지운다
+    const keys = mesh.userData.keys as Keyframe[] | undefined;
+    if (keys) mesh.userData.keys = keys.map(({ bones: _drop, ...k }) => k);
+    rebuildGeometry(mesh);
+    this.commit();
+    return bones;
+  }
+
+  removeRig(id: string | null) {
+    const mesh = this.getMesh(id);
+    if (!mesh?.userData.rig) return false;
+    delete mesh.userData.rig;
+    delete mesh.userData.weights;
+    rebuildGeometry(mesh);
+    this.commit();
+    return true;
+  }
+
+  /** 포즈: 뼈 하나의 회전. done 이 아니면 끄는 중 (기록 없이 화면만) */
+  setBonePose(id: string | null, boneId: string, rot: Vec3, done: boolean) {
+    const mesh = this.getMesh(id);
+    const rig = mesh?.userData.rig as Rig | undefined;
+    if (!mesh || !rig) return;
+    rig.pose = { ...rig.pose, [boneId]: rot.map(round) as Vec3 };
+    if (rig.pose[boneId].every((v) => v === 0)) delete rig.pose[boneId];
+    // 대칭 포즈: 짝 뼈도 거울처럼 (X 축 대칭이라 Y, Z 회전은 반대로)
+    if (mesh.userData.mirrorPose) {
+      const bone = rig.bones.find((b) => b.id === boneId);
+      const pair = bone && mirrorName(bone.name) && rig.bones.find((b) => b.name === mirrorName(bone.name));
+      if (pair) rig.pose[pair.id] = [round(rot[0]), round(-rot[1]), round(-rot[2])];
+    }
+    rebuildGeometry(mesh);
+    if (done) this.commit();
+    else this.refresh();
+  }
+
+  setMirrorPose(id: string | null, on: boolean) {
+    const mesh = this.getMesh(id);
+    if (mesh) mesh.userData.mirrorPose = on || undefined;
+  }
+
+  /** 모든 뼈를 쉬는 자세로 (Alt+R 처럼) */
+  resetPose(id: string | null, boneId?: string) {
+    const mesh = this.getMesh(id);
+    const rig = mesh?.userData.rig as Rig | undefined;
+    if (!mesh || !rig) return;
+    if (boneId) {
+      const { [boneId]: _drop, ...rest } = rig.pose;
+      rig.pose = rest;
+    } else rig.pose = {};
+    rebuildGeometry(mesh);
+    this.commit();
+  }
+
+  /** 관절 옮기기 (쉬는 자세에서). end: 뼈 머리 또는 끝. 이어진 뼈의 같은 관절도 함께 */
+  moveJoint(id: string | null, boneId: string, end: "head" | "tail", to: Vec3, done: boolean) {
+    const mesh = this.getMesh(id);
+    const rig = mesh?.userData.rig as Rig | undefined;
+    const bone = rig?.bones.find((b) => b.id === boneId);
+    if (!mesh || !rig || !bone) return;
+    const from = [...bone[end]] as Vec3;
+    const near = (a: Vec3) => Math.hypot(a[0] - from[0], a[1] - from[1], a[2] - from[2]) < 1e-5;
+    const p = to.map(round) as Vec3;
+    rig.bones = rig.bones.map((b) => ({ ...b, head: near(b.head) ? [...p] : b.head, tail: near(b.tail) ? [...p] : b.tail }));
+    rebuildGeometry(mesh);
+    if (done) this.commit();
+    else this.refresh();
+  }
+
+  /** 고른 뼈 끝에 새 뼈 이어 붙이기. 새 뼈 id */
+  extrudeBone(id: string | null, boneId: string): string | null {
+    const mesh = this.getMesh(id);
+    const rig = mesh?.userData.rig as Rig | undefined;
+    const bone = rig?.bones.find((b) => b.id === boneId);
+    if (!mesh || !rig || !bone) return null;
+    const b = extrudeBone(rig.bones, bone);
+    rig.bones = [...rig.bones, b];
+    rebuildGeometry(mesh);
+    this.commit();
+    return b.id;
+  }
+
+  /** 뼈 지우기: 자식 뼈는 지운 뼈의 부모에 붙는다 */
+  deleteBone(id: string | null, boneId: string) {
+    const mesh = this.getMesh(id);
+    const rig = mesh?.userData.rig as Rig | undefined;
+    const bone = rig?.bones.find((b) => b.id === boneId);
+    if (!mesh || !rig || !bone) return false;
+    if (rig.bones.length === 1) return this.removeRig(id);
+    rig.bones = rig.bones.filter((b) => b !== bone).map((b) => (b.parent === bone.id ? { ...b, parent: bone.parent } : b));
+    const { [boneId]: _drop, ...rest } = rig.pose;
+    rig.pose = rest;
+    rebuildGeometry(mesh);
+    this.commit();
+    return true;
+  }
+
+  renameBone(id: string | null, boneId: string, name: string) {
+    const rig = this.getRig(id);
+    const bone = rig?.bones.find((b) => b.id === boneId);
+    if (!rig || !bone || !name.trim()) return;
+    rig.bones = rig.bones.map((b) => (b === bone ? { ...b, name: name.trim() } : b));
+    this.commit();
+  }
+
+  /** 지금 포즈를 모양에 굳히기 (블렌더의 Apply Pose as Rest Pose 와 비슷하게, 뼈대는 뗀다) */
+  applyPose(id: string | null) {
+    const mesh = this.getMesh(id);
+    const rig = mesh?.userData.rig as Rig | undefined;
+    if (!mesh || !rig) return false;
+    const rest = restDisplay(mesh);
+    mesh.userData.poly = cloneMesh(isRestPose(rig.pose) ? rest : deform(rest, rig, weightsFor(mesh, rest, rig)));
+    for (const k of ["rig", "weights", "mirror", "array", "solidify", "subdivision"]) delete mesh.userData[k];
+    rebuildGeometry(mesh);
+    this.commit();
+    return true;
+  }
+
   // ---------- 텍스처 칠하기 ----------
 
   /** 칠할 그림. 없으면 UV 를 펴고 바탕색으로 채운 새 그림을 만든다 */
@@ -1139,6 +1287,7 @@ function toInfo(mesh: THREE.Mesh): ObjectInfo {
     ...(mesh.userData.solidify ? { solidify: mesh.userData.solidify as number } : {}),
     ...(mesh.userData.smooth && mesh.userData.smooth !== "auto" ? { smooth: mesh.userData.smooth as SmoothMode } : {}),
     ...(mesh.userData.keys ? { keys: cloneKeys(mesh.userData.keys as Keyframe[]) } : {}),
+    ...(mesh.userData.rig ? { rig: cloneRig(mesh.userData.rig as Rig) } : {}),
   };
 }
 
@@ -1156,7 +1305,7 @@ function modifiersOf(mesh: THREE.Mesh): Modifiers {
 }
 
 const modifierKey = (mesh: THREE.Mesh) =>
-  `${mesh.userData.subdivision ?? 0}/${mesh.userData.smooth ?? "auto"}/${(mesh.userData.mirror as Axis[] | undefined)?.join("") ?? ""}/${JSON.stringify(mesh.userData.array ?? null)}/${mesh.userData.solidify ?? 0}`;
+  `${mesh.userData.rig ? JSON.stringify(mesh.userData.rig) : ""}/${mesh.userData.subdivision ?? 0}/${mesh.userData.smooth ?? "auto"}/${(mesh.userData.mirror as Axis[] | undefined)?.join("") ?? ""}/${JSON.stringify(mesh.userData.array ?? null)}/${mesh.userData.solidify ?? 0}`;
 
 function rebuildGeometry(mesh: THREE.Mesh) {
   const poly = mesh.userData.poly as PolyMesh;
@@ -1165,8 +1314,11 @@ function rebuildGeometry(mesh: THREE.Mesh) {
   const smooth = (mesh.userData.smooth as SmoothMode | undefined) ?? "auto";
   // 매끈하게 켠 모양은 기본으로 모두 부드럽게 이어 보인다 (블렌더에서 Shade Smooth 와 같이 쓰는 것처럼).
   const degrees = smooth === "flat" ? 0 : smooth === "smooth" || level > 0 ? 180 : AUTO_SMOOTH_DEGREES;
-  const modified = hasModifiers(mods);
-  const display = modified ? applyModifiers(poly, mods) : poly;
+  const rig = mesh.userData.rig as Rig | undefined;
+  const posed = !!rig && !isRestPose(rig.pose);
+  const modified = hasModifiers(mods) || posed;
+  let display = hasModifiers(mods) ? applyModifiers(poly, mods) : poly;
+  if (rig && posed) display = deform(display, rig, weightsFor(mesh, display, rig));
 
   mesh.geometry.dispose();
   (mesh.userData.cage as THREE.BufferGeometry | undefined)?.dispose();
@@ -1177,6 +1329,16 @@ function rebuildGeometry(mesh: THREE.Mesh) {
   mesh.userData.displayPoly = modified ? display : undefined;
   mesh.userData.cage = modified ? buildGeometry(poly) : undefined;
   mesh.userData.geometryKey = modifierKey(mesh);
+}
+
+/** 쉬는 자세 그대로의 그릴 모양 (뼈대 있는 모델 내보내기용, 면 이어 보이기와 UV 는 화면과 같게) */
+export function restGeometry(mesh: THREE.Mesh): THREE.BufferGeometry {
+  const level = (mesh.userData.subdivision as number | undefined) ?? 0;
+  const smooth = (mesh.userData.smooth as SmoothMode | undefined) ?? "auto";
+  const degrees = smooth === "flat" ? 0 : smooth === "smooth" || level > 0 ? 180 : AUTO_SMOOTH_DEGREES;
+  const rest = restDisplay(mesh);
+  const uv = mesh.userData.uv as FaceUVs | undefined;
+  return buildGeometry(rest, degrees, uvFits(rest, uv) ? uv : undefined);
 }
 
 /** 편집 모드에서 클릭한 면을 찾을 모양 (원래 모양 그대로) */
@@ -1198,6 +1360,7 @@ function applyData(mesh: THREE.Mesh, data: ObjectInfo) {
         ? { count: Math.max(2, Math.min(64, Math.round(data.array.count))), offset: data.array.offset.map((v) => Number(v) || 0) as Vec3 }
         : undefined;
     mesh.userData.solidify = Number.isFinite(data.solidify) && data.solidify ? Math.max(-10, Math.min(10, data.solidify)) : undefined;
+    mesh.userData.rig = data.rig?.bones.length ? cloneRig(data.rig) : undefined;
   }
   // 매끈하게 단계나 면 이어 보이기가 바뀌었을 때만 다시 만든다.
   if (mesh.userData.geometryKey !== modifierKey(mesh)) rebuildGeometry(mesh);
@@ -1278,4 +1441,37 @@ function meshIslands(uvs: FaceUVs): number[] {
     }),
   );
   return uvs.map((_, i) => find(i));
+}
+
+/** 자동 가중치는 모양이나 뼈 자리가 바뀔 때만 다시 계산한다 (포즈만 바뀌면 그대로) */
+function weightsFor(mesh: THREE.Mesh, rest: PolyMesh, rig: Rig): Weights {
+  const key = `${rest.vertices.length}/${rest.faces.length}/${JSON.stringify(rig.bones)}`;
+  const cached = mesh.userData.weights as { key: string; w: Weights; src: PolyMesh } | undefined;
+  if (cached && cached.key === key && (cached.src === rest || sameVertices(cached.src, rest))) return cached.w;
+  // 같은 점 수라도 점이 움직였을 수 있어 원본 모양이 바뀌면(편집, 조각) 다시
+  const w = autoWeights(rest, rig.bones);
+  mesh.userData.weights = { key, w, src: rest };
+  return w;
+}
+
+function sameVertices(a: PolyMesh, b: PolyMesh) {
+  if (a.vertices.length !== b.vertices.length) return false;
+  for (let i = 0; i < a.vertices.length; i++) {
+    const p = a.vertices[i];
+    const q = b.vertices[i];
+    if (p[0] !== q[0] || p[1] !== q[1] || p[2] !== q[2]) return false;
+  }
+  return true;
+}
+
+/** 쉬는 자세(포즈 전) 보이는 모양: 내보내기와 가중치 계산용 */
+export function restDisplay(mesh: THREE.Mesh): PolyMesh {
+  const poly = mesh.userData.poly as PolyMesh;
+  const mods = modifiersOf(mesh);
+  return hasModifiers(mods) ? applyModifiers(poly, mods) : poly;
+}
+
+export function meshWeights(mesh: THREE.Mesh): Weights | null {
+  const rig = mesh.userData.rig as Rig | undefined;
+  return rig ? weightsFor(mesh, restDisplay(mesh), rig) : null;
 }

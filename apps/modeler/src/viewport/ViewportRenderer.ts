@@ -17,6 +17,7 @@ import { applyShading, type Shading } from "./shading";
 import { SculptTool } from "./SculptTool";
 import type { SculptSettings } from "../mesh/sculpt";
 import { PaintTool } from "./PaintTool";
+import { RigTool, type RigMode } from "./RigTool";
 import type { PaintSettings } from "../mesh/texturePaint";
 
 export type ToolId = "select" | "move" | "rotate" | "scale";
@@ -82,6 +83,9 @@ export class ViewportRenderer {
   private helpers: THREE.Object3D[] = [];
   private sculpt!: SculptTool;
   private paint!: PaintTool;
+  private rig!: RigTool;
+  /** 뼈대 모드에서 화면으로 뼈를 골랐을 때 */
+  onBonePick: (bone: string | null, end: "head" | "tail") => void = () => {};
   /** 칠하기 모드에서 스포이트로 색을 찍었을 때 */
   onPaintPick: (color: string) => void = () => {};
 
@@ -212,6 +216,15 @@ export class ViewportRenderer {
       onPick: (color) => this.onPaintPick(color),
     });
 
+    this.rig = new RigTool({
+      canvas,
+      camera: () => this.camera,
+      model,
+      scene: this.scene,
+      setOrbit: (enabled) => (this.orbit.enabled = enabled),
+      onSelect: (bone, end) => this.onBonePick(bone, end),
+    });
+
     this.gizmo = new NavGizmo(
       container,
       (view) => this.setView(view),
@@ -232,6 +245,7 @@ export class ViewportRenderer {
       const dt = (now - last) / 1000;
       last = now;
       this.orbit.update();
+      this.rig.update();
       this.gizmo.update(this.camera);
       applyShading(this.model.allMeshes(), this.shading);
       this.updateParticles(dt);
@@ -468,11 +482,17 @@ export class ViewportRenderer {
     this.syncSelection();
   }
 
+  /** 뼈대 모드: id 오브젝트의 뼈를 보이고 고른 뼈에 손잡이를 붙인다. null 이면 끈다 */
+  setRig(id: string | null, mode: RigMode, bone: string | null, end: "head" | "tail") {
+    this.rig.set(id, mode, bone, end);
+    this.syncSelection();
+  }
+
   private syncSelection() {
     const snapshot = this.model.getSnapshot();
     if (snapshot.edit) return this.syncEditMode();
     this.disposeOverlay();
-    if (this.sculpt?.active || this.paint?.active) {
+    if (this.sculpt?.active || this.paint?.active || this.rig?.active) {
       // 조각하는 동안에는 손잡이와 상자를 감춘다
       this.selectionBox.visible = false;
       this.transform.detach();
@@ -816,7 +836,7 @@ export class ViewportRenderer {
       if (wasPending) return;
     }
     // 드래그(돌려보기)가 아니라 제자리 클릭일 때만 선택한다.
-    if (!start || e.button !== 0 || this.transform.dragging) return;
+    if (!start || e.button !== 0 || this.transform.dragging || this.rig.busy) return;
     if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 4) return;
     if (this.model.getSnapshot().edit) return this.pickEdit(e);
 
@@ -848,7 +868,7 @@ export class ViewportRenderer {
     const ss = Math.max(1, Math.min(2, Math.floor(4096 / Math.max(width, height))));
     const W = width * ss;
     const H = height * ss;
-    const hidden = [...this.helpers, this.selectionBox, this.transform.getHelper(), this.pivot, this.overlay?.group].filter((o): o is THREE.Object3D => !!o && o.visible);
+    const hidden = [...this.helpers, ...this.rig.overlays, this.selectionBox, this.transform.getHelper(), this.pivot, this.overlay?.group].filter((o): o is THREE.Object3D => !!o && o.visible);
     hidden.forEach((o) => (o.visible = false));
     const background = this.scene.background;
     this.scene.background = opts.transparent ? null : new THREE.Color(opts.background ?? "#232838");
@@ -906,6 +926,7 @@ export class ViewportRenderer {
     cancelAnimationFrame(this.frame);
     this.sculpt.dispose();
     this.paint.dispose();
+    this.rig.dispose();
     this.modal.cancel();
     this.gizmo.dispose();
     this.readout.remove();
