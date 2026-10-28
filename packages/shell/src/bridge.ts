@@ -101,6 +101,8 @@ export interface SuiteBridge {
      * file:// 주소로 바로 재생한다.
      */
     pick(request: PickFilesRequest): Promise<string[]>;
+    /** 폴더를 고른다 (일괄 처리 결과를 둘 곳). 취소하면 null */
+    pickFolder(): Promise<string | null>;
     /** 경로의 파일 내용을 읽는다 (소리 파형 그리기처럼 내용이 필요할 때). 없으면 null. */
     read(path: string): Promise<Uint8Array | null>;
     /** 끌어다 놓은 파일의 실제 경로 */
@@ -120,6 +122,7 @@ export const IPC = {
   fileSave: "suite:file-save",
   fileOpen: "suite:file-open",
   filePick: "suite:file-pick",
+  folderPick: "suite:folder-pick",
   fileRead: "suite:file-read",
   setDirty: "suite:set-dirty",
   autosaveRead: "suite:autosave-read",
