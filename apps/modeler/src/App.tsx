@@ -26,6 +26,8 @@ import type { SelectMode } from "./mesh/selection";
 import { PropertiesPanel } from "./panels/PropertiesPanel";
 import { BooleanPanel } from "./panels/BooleanPanel";
 import { SculptPanel } from "./panels/SculptPanel";
+import { PaintPanel } from "./panels/PaintPanel";
+import { DEFAULT_PAINT, PAINT_BRUSHES, type PaintBrush, type PaintSettings } from "./mesh/texturePaint";
 import { DEFAULT_SCULPT, SCULPT_BRUSHES, type SculptBrush, type SculptSettings } from "./mesh/sculpt";
 import { RenderDialog } from "./panels/RenderDialog";
 import { Timeline } from "./panels/Timeline";
@@ -95,6 +97,8 @@ O 비례 편집 (G/R/S 중 휠로 반경) · F12 렌더 (PNG, 투명 배경 · �
 조각 모드: X 그리기 · C 찰흙 · S 부드럽게 · G 잡아끌기 · I 부풀리기 · T 평평하게 · P 모으기 · Shift+C 주름 · [ ] 붓 크기 · Shift+[ ] 세기 · Ctrl 반대로 · Shift 부드럽게`;
 
 const SCULPT_KEYS: Record<string, SculptBrush> = { x: "draw", c: "clay", s: "smooth", g: "grab", i: "inflate", t: "flatten", p: "pinch" };
+const PAINT_KEYS: Record<string, PaintBrush> = { b: "paint", e: "erase", i: "pick" };
+const PAINT_HINT = "모양 위를 끌어 칠하기 · 빈 곳 끌기: 돌려보기 · Ctrl: 잠깐 지우개 · B/E/I: 붓/지우개/스포이트 · [ ]: 붓 크기 · Tab: 끝내기";
 const SCULPT_HINT = "모양 위를 끌어 빚기 · 빈 곳 끌기: 돌려보기 · Ctrl: 반대로 · Shift: 부드럽게 · [ ]: 붓 크기 · Tab: 끝내기";
 
 const SHORTCUTS: Record<string, ToolId> = { q: "select", w: "move", e: "rotate", t: "scale" };
@@ -124,6 +128,8 @@ export function App() {
   const [ortho, setOrtho] = useState(false);
   const [sculptOn, setSculptOn] = useState(false);
   const [sculpt, setSculpt] = useState<SculptSettings>(DEFAULT_SCULPT);
+  const [paintOn, setPaintOn] = useState(false);
+  const [paint, setPaint] = useState<PaintSettings>(DEFAULT_PAINT);
   const [playing, setPlaying] = useState(false);
   const [timelineOn, setTimelineOn] = useState(true);
   const [search, setSearch] = useState<null | { kind: "all" } | { kind: "add"; at: { x: number; y: number } }>(null);
@@ -182,9 +188,28 @@ export function App() {
     if (sculptOn && !sculptId) setSculptOn(false);
   }, [sculptOn, sculptId]);
   useEffect(() => viewport?.setSculpt(sculptId, sculptId ? sculpt : null), [viewport, sculptId, sculpt]);
+  // 텍스처 칠하기도 고른 도형 하나에만
+  const paintId = paintOn && selected && selected.kind !== "effect" && !edit ? selected.id : null;
+  useEffect(() => {
+    if (paintOn && !paintId) setPaintOn(false);
+  }, [paintOn, paintId]);
+  useEffect(() => viewport?.setPaint(paintId, paintId ? paint : null), [viewport, paintId, paint]);
+  useEffect(() => {
+    if (viewport) viewport.onPaintPick = (color) => setPaint((s) => ({ ...s, color, brush: "paint" }));
+  }, [viewport]);
+  const enterPaint = () => {
+    if (!selected || selected.kind === "effect") return void notify("칠할 도형을 먼저 골라 주세요.");
+    model.exitEdit();
+    setSculptOn(false);
+    const fresh = !selected.textured;
+    if (!model.ensurePaint(selected.id)) return;
+    setPaintOn(true);
+    if (fresh) notify("겉면을 펼쳐서(스마트 UV) 칠할 그림을 만들었어요. 모양 위를 끌어 칠해 보세요.");
+  };
   const enterSculpt = () => {
     if (!selected || selected.kind === "effect") return void notify("조각할 도형을 먼저 골라 주세요. 구(UV 구)로 시작하면 좋아요.");
     model.exitEdit();
+    setPaintOn(false);
     setSculptOn(true);
     const faces = model.sculptPoly(selected.id)?.faces.length ?? 0;
     if (faces < 1500) notify("‘촘촘하게’를 두세 번 눌러 면을 늘리면 찰흙처럼 곱게 빚어져요.");
@@ -243,6 +268,23 @@ export function App() {
         return;
       }
       const key = e.key.toLowerCase();
+
+      // 칠하기 모드 붓 단축키
+      if (paintId && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (key === "tab") {
+          e.preventDefault();
+          return setPaintOn(false);
+        }
+        if (!e.shiftKey && PAINT_KEYS[key]) return setPaint((s) => ({ ...s, brush: PAINT_KEYS[key] }));
+        if (e.code === "BracketLeft" || e.code === "BracketRight") {
+          const up = e.code === "BracketRight";
+          return setPaint((s) =>
+            e.shiftKey
+              ? { ...s, strength: Math.round(Math.max(0.05, Math.min(1, s.strength + (up ? 0.05 : -0.05))) * 100) / 100 }
+              : { ...s, radius: Math.round(Math.max(2, Math.min(300, s.radius * (up ? 1.15 : 1 / 1.15)))) },
+          );
+        }
+      }
 
       // 조각 모드 붓 단축키 (블렌더와 같게)
       if (sculptId && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -425,6 +467,16 @@ export function App() {
         { label: "숨긴 것 모두 보이기", shortcut: "Alt+H", disabled: !items.some((i) => i.hidden), onSelect: () => model.unhideAll() },
         { label: edit ? "편집 모드 끝내기" : "편집 모드 (점, 선, 면 고치기)", shortcut: "Tab", onSelect: () => explainEdit(model.toggleEdit()) },
         { label: sculptId ? "조각 모드 끝내기" : "조각 모드 (찰흙처럼 빚기)", onSelect: () => (sculptId ? setSculptOn(false) : enterSculpt()) },
+        { label: paintId ? "텍스처 칠하기 끝내기" : "텍스처 칠하기 (모양 위에 그림 그리기)", onSelect: () => (paintId ? setPaintOn(false) : enterPaint()) },
+        ...PAINT_BRUSHES.map((b) => ({ label: `칠하기: ${b.label}`, shortcut: b.key, disabled: !paintId, onSelect: () => setPaint((s) => ({ ...s, brush: b.id })) })),
+        {
+          label: "스마트 UV 펼치기 (겉면을 펴서 그림 입힐 준비)",
+          disabled: !selected || selected.kind === "effect",
+          onSelect: () => {
+            const n = model.unwrap(selected?.id ?? null);
+            if (n) notify(`겉면을 조각 ${n}개로 펼쳤어요. 텍스처 칠하기 모드에서 칠하거나 그림을 입혀 보세요.`);
+          },
+        },
         { label: "촘촘하게 (면 4배, 조각용)", disabled: !selected || selected.kind === "effect", onSelect: densify },
         ...SCULPT_BRUSHES.map((b) => ({ label: `조각 붓: ${b.label}`, shortcut: b.key, disabled: !sculptId, onSelect: () => setSculpt((s) => ({ ...s, brush: b.id })) })),
         { label: proportional ? "비례 편집 끄기" : "비례 편집 켜기 (둘레 점도 부드럽게 따라오기)", shortcut: "O", onSelect: () => setProportional(!proportional) },
@@ -553,7 +605,8 @@ export function App() {
           </Panel>
           <PropertiesPanel model={model} item={selected} edit={edit} />
           {sculptId && <SculptPanel settings={sculpt} onChange={setSculpt} faces={sculptFaces} onDensify={densify} />}
-          {selected && !edit && !sculptId && selected.kind !== "effect" && <BooleanPanel model={model} item={selected} items={items} notify={notify} />}
+          {paintId && <PaintPanel model={model} id={paintId} name={selected?.name ?? file.name} settings={paint} onChange={setPaint} notify={notify} />}
+          {selected && !edit && !sculptId && !paintId && selected.kind !== "effect" && <BooleanPanel model={model} item={selected} items={items} notify={notify} />}
           {aiOpen && (
             <AIAssistantPanel
               app="modeler"
@@ -570,7 +623,7 @@ export function App() {
         </>
       }
       statusbar={
-        <StatusBar hint={edit ? EDIT_HINTS[edit.mode] : sculptId ? SCULPT_HINT : HINTS[tool]}>
+        <StatusBar hint={edit ? EDIT_HINTS[edit.mode] : sculptId ? SCULPT_HINT : paintId ? PAINT_HINT : HINTS[tool]}>
           <span>
             {dirty ? "● " : ""}
             {file.name}
@@ -590,10 +643,12 @@ export function App() {
       <div className="viewport-header">
         <Segmented
           label="모드"
-          value={edit ? "edit" : sculptId ? "sculpt" : "object"}
+          value={edit ? "edit" : sculptId ? "sculpt" : paintId ? "paint" : "object"}
           onChange={(mode) => {
             if (mode === "sculpt") return enterSculpt();
+            if (mode === "paint") return enterPaint();
             setSculptOn(false);
+            setPaintOn(false);
             if (mode === "edit") explainEdit(model.enterEdit());
             else model.exitEdit();
           }}
@@ -601,6 +656,7 @@ export function App() {
             { value: "object", label: "오브젝트 모드", hint: "오브젝트를 통째로 옮기고 돌리기 (Tab)" },
             { value: "edit", label: "편집 모드", hint: selected ? "점, 선, 면을 고쳐서 모양 바꾸기 (Tab)" : "먼저 오브젝트를 골라 주세요" },
             { value: "sculpt", label: "조각 모드", hint: selected ? "찰흙처럼 붓으로 밀고 당겨 빚기" : "먼저 오브젝트를 골라 주세요" },
+            { value: "paint", label: "칠하기 모드", hint: selected ? "모양 위에 붓으로 그림 그리기 (텍스처 페인트)" : "먼저 오브젝트를 골라 주세요" },
           ]}
         />
         {edit && <Segmented label="고르는 단위" value={edit.mode} onChange={(m) => model.setSelectMode(m)} options={SELECT_MODES} />}

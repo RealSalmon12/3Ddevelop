@@ -16,6 +16,8 @@ import { NavGizmo, type ViewName } from "./NavGizmo";
 import { applyShading, type Shading } from "./shading";
 import { SculptTool } from "./SculptTool";
 import type { SculptSettings } from "../mesh/sculpt";
+import { PaintTool } from "./PaintTool";
+import type { PaintSettings } from "../mesh/texturePaint";
 
 export type ToolId = "select" | "move" | "rotate" | "scale";
 export type { ViewName } from "./NavGizmo";
@@ -79,6 +81,9 @@ export class ViewportRenderer {
   /** 렌더(F12) 때 숨길 격자, 축 선 */
   private helpers: THREE.Object3D[] = [];
   private sculpt!: SculptTool;
+  private paint!: PaintTool;
+  /** 칠하기 모드에서 스포이트로 색을 찍었을 때 */
+  onPaintPick: (color: string) => void = () => {};
 
   constructor(
     private container: HTMLElement,
@@ -196,6 +201,15 @@ export class ViewportRenderer {
       model,
       scene: this.scene,
       setOrbit: (enabled) => (this.orbit.enabled = enabled),
+    });
+
+    this.paint = new PaintTool({
+      canvas,
+      camera: () => this.camera,
+      model,
+      scene: this.scene,
+      setOrbit: (enabled) => (this.orbit.enabled = enabled),
+      onPick: (color) => this.onPaintPick(color),
     });
 
     this.gizmo = new NavGizmo(
@@ -448,11 +462,17 @@ export class ViewportRenderer {
     this.syncSelection();
   }
 
+  /** 텍스처 칠하기 모드: id 오브젝트에 붓으로 그림을 칠한다. null 이면 끈다 */
+  setPaint(id: string | null, settings: PaintSettings | null) {
+    this.paint.set(id, settings);
+    this.syncSelection();
+  }
+
   private syncSelection() {
     const snapshot = this.model.getSnapshot();
     if (snapshot.edit) return this.syncEditMode();
     this.disposeOverlay();
-    if (this.sculpt?.active) {
+    if (this.sculpt?.active || this.paint?.active) {
       // 조각하는 동안에는 손잡이와 상자를 감춘다
       this.selectionBox.visible = false;
       this.transform.detach();
@@ -885,6 +905,7 @@ export class ViewportRenderer {
   dispose() {
     cancelAnimationFrame(this.frame);
     this.sculpt.dispose();
+    this.paint.dispose();
     this.modal.cancel();
     this.gizmo.dispose();
     this.readout.remove();

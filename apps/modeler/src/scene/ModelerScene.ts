@@ -19,6 +19,8 @@ import {
 } from "../mesh/selection";
 import { EFFECTS, ParticleSystem, type EffectSettings, type EffectType } from "../effects/particles";
 import { createShape, SHAPES, type ShapeKind } from "./shapes";
+import { smartUnwrap, uvFits, type FaceUVs } from "../mesh/uv";
+import { PaintTexture, uvLayoutCanvas } from "../mesh/texturePaint";
 import { cloneKeys, DEFAULT_ANIM, sampleKeys, upsertKey, type AnimSettings, type Interp, type Keyframe } from "./animation";
 
 
@@ -59,12 +61,19 @@ export interface ObjectData {
   keys?: Keyframe[];
   /** 모양 (오브젝트 기준 좌표). 처음 버전 파일에는 없어서 kind 로 다시 만든다. */
   mesh?: PolyMesh;
+  /** UV 펼친 결과: 보이는 모양(모디파이어 적용 뒤)의 면마다, 점 순서대로 */
+  uv?: FaceUVs;
+  /** 칠한 그림 (PNG data URL) */
+  texture?: string;
 }
 
 export type SmoothMode = "auto" | "smooth" | "flat";
 
 /** 화면 목록과 속성 패널에 보여줄 정보 (모양 데이터는 크기가 커서 뺀다) */
-export type ObjectInfo = Omit<ObjectData, "mesh">;
+export type ObjectInfo = Omit<ObjectData, "mesh" | "uv" | "texture"> & {
+  /** 그림을 칠했거나 입혔는지 */
+  textured?: boolean;
+};
 
 /** 프로젝트 파일(.nmodel) 내용 */
 export interface SceneDocument {
@@ -425,6 +434,8 @@ export class ModelerScene {
       position: [-x, y, z],
       rotation: [rx, -ry, -rz],
       mesh: flipped,
+      // 면 방향을 뒤집었으니 UV 순서도 뒤집는다 (모디파이어가 있으면 다시 펼친다)
+      uv: hasModifiers(modifiersOf(mesh)) ? undefined : data.uv?.map((f) => [...f].reverse()),
     });
     this.commit();
     return true;
@@ -813,6 +824,110 @@ export class ModelerScene {
   }
 
   /** Ctrl+0~3: 고른 오브젝트를 매끈하게 하는 단계 */
+  // ---------- 텍스처 칠하기 ----------
+
+  /** 칠할 그림. 없으면 UV 를 펴고 바탕색으로 채운 새 그림을 만든다 */
+  ensurePaint(id: string | null): PaintTexture | null {
+    const mesh = this.getMesh(id);
+    if (!mesh || mesh.userData.kind === "effect") return null;
+    let paint = mesh.userData.paint as PaintTexture | undefined;
+    if (paint) return paint;
+    const display = (mesh.userData.displayPoly ?? mesh.userData.poly) as PolyMesh;
+    if (!uvFits(display, mesh.userData.uv as FaceUVs | undefined)) mesh.userData.uv = smartUnwrap(display);
+    paint = new PaintTexture(mesh.userData.color as string);
+    paint.url = paint.canvas.toDataURL("image/png");
+    remember(paint);
+    this.attachPaint(mesh, paint);
+    this.commit();
+    return paint;
+  }
+
+  private attachPaint(mesh: THREE.Mesh, paint: PaintTexture) {
+    const old = mesh.userData.paint as PaintTexture | undefined;
+    if (old && old !== paint) old.dispose();
+    mesh.userData.paint = paint;
+    const material = mesh.material as THREE.MeshStandardMaterial;
+    material.map = paint.texture;
+    material.color.set("#ffffff");
+    material.needsUpdate = true;
+    rebuildGeometry(mesh);
+  }
+
+  getPaint(id: string | null): PaintTexture | null {
+    return (this.getMesh(id)?.userData.paint as PaintTexture | undefined) ?? null;
+  }
+
+  /** 붓을 뗐을 때: 그림이 바뀌었으면 기록 */
+  paintStrokeEnded(id: string) {
+    const paint = this.getPaint(id);
+    if (paint?.end()) {
+      remember(paint);
+      this.commit();
+    }
+  }
+
+  /** 스마트 UV 펼치기를 다시 (칠한 그림은 그대로라 자리가 바뀐다) */
+  unwrap(id: string | null): number | null {
+    const mesh = this.getMesh(id);
+    if (!mesh || mesh.userData.kind === "effect") return null;
+    const display = (mesh.userData.displayPoly ?? mesh.userData.poly) as PolyMesh;
+    mesh.userData.uv = smartUnwrap(display);
+    if (!mesh.userData.paint) {
+      const paint = new PaintTexture(mesh.userData.color as string);
+      paint.url = paint.canvas.toDataURL("image/png");
+      this.attachPaint(mesh, paint);
+    } else rebuildGeometry(mesh);
+    this.commit();
+    return new Set(meshIslands(mesh.userData.uv as FaceUVs)).size;
+  }
+
+  /** 사진, 그림 파일을 통째로 입힌다 */
+  applyImage(id: string | null, image: CanvasImageSource) {
+    const paint = this.ensurePaint(id);
+    if (!paint) return false;
+    paint.drawImage(image);
+    paint.url = paint.canvas.toDataURL("image/png");
+    remember(paint);
+    this.commit();
+    return true;
+  }
+
+  /** 그림을 한 색으로 채운다 */
+  fillPaint(id: string | null, color: string) {
+    const paint = this.ensurePaint(id);
+    if (!paint) return false;
+    paint.fill(color);
+    paint.url = paint.canvas.toDataURL("image/png");
+    remember(paint);
+    this.commit();
+    return true;
+  }
+
+  /** 그림을 떼고 원래 한 색으로 */
+  removePaint(id: string | null) {
+    const mesh = this.getMesh(id);
+    const paint = mesh?.userData.paint as PaintTexture | undefined;
+    if (!mesh || !paint) return false;
+    paint.dispose();
+    delete mesh.userData.paint;
+    delete mesh.userData.uv;
+    const material = mesh.material as THREE.MeshStandardMaterial;
+    material.map = null;
+    material.color.set(mesh.userData.color as string);
+    material.needsUpdate = true;
+    rebuildGeometry(mesh);
+    this.commit();
+    return true;
+  }
+
+  /** UV 배치도 (조각 테두리 그림). withTexture 면 칠한 그림 위에 */
+  uvLayout(id: string | null, withTexture = false): HTMLCanvasElement | null {
+    const mesh = this.getMesh(id);
+    const uv = mesh?.userData.uv as FaceUVs | undefined;
+    if (!mesh || !uv) return null;
+    return uvLayoutCanvas(uv, withTexture ? (mesh.userData.paint as PaintTexture | undefined)?.canvas : undefined);
+  }
+
   // ---------- 조각 모드 ----------
 
   /** 조각할 오브젝트의 모양. 조각 붓은 이 점들을 바로 바꾸고 sculptChanged() 를 부른다. */
@@ -942,6 +1057,13 @@ export class ModelerScene {
     mesh.userData.id = data.id;
     mesh.userData.kind = data.kind;
     mesh.userData.geometryKey = null;
+    if (data.texture && data.uv && !isEffect) {
+      mesh.userData.uv = data.uv;
+      const paint = loadPaint(data.texture, data.color);
+      mesh.userData.paint = paint;
+      const material = mesh.material as THREE.MeshStandardMaterial;
+      material.map = paint.texture;
+    }
     mesh.castShadow = !isEffect;
     mesh.receiveShadow = !isEffect;
     applyData(mesh, data);
@@ -959,6 +1081,7 @@ export class ModelerScene {
     this.root.remove(mesh);
     mesh.geometry.dispose();
     (mesh.userData.cage as THREE.BufferGeometry | undefined)?.dispose();
+    (mesh.userData.paint as PaintTexture | undefined)?.dispose();
     (mesh.material as THREE.Material).dispose();
     this.meshes.delete(id);
   }
@@ -992,6 +1115,7 @@ function toData(mesh: THREE.Mesh): ObjectData {
   return {
     ...toInfo(mesh),
     mesh: { vertices: poly.vertices.map((v) => v.map(round) as Vec3), faces: poly.faces },
+    ...(mesh.userData.paint ? { uv: mesh.userData.uv as FaceUVs, texture: (mesh.userData.paint as PaintTexture).url } : {}),
   };
 }
 
@@ -1003,7 +1127,8 @@ function toInfo(mesh: THREE.Mesh): ObjectInfo {
     position: vec(mesh.position),
     rotation: vec(mesh.rotation),
     scale: vec(mesh.scale),
-    color: `#${(mesh.material as THREE.MeshStandardMaterial).color.getHexString()}`,
+    color: (mesh.userData.color as string | undefined) ?? `#${(mesh.material as THREE.MeshStandardMaterial).color.getHexString()}`,
+    ...(mesh.userData.paint ? { textured: true } : {}),
     ...(mesh.userData.glow ? { glow: mesh.userData.glow as number } : {}),
     ...(mesh.userData.surface ? { surface: mesh.userData.surface as Surface } : {}),
     ...(mesh.userData.effect ? { effect: { ...(mesh.userData.effect as EffectSettings) } } : {}),
@@ -1045,7 +1170,10 @@ function rebuildGeometry(mesh: THREE.Mesh) {
 
   mesh.geometry.dispose();
   (mesh.userData.cage as THREE.BufferGeometry | undefined)?.dispose();
-  mesh.geometry = buildGeometry(display, degrees);
+  // 칠한 그림이 있는데 모양(면 수)이 바뀌었으면 UV 를 다시 펼친다
+  let uv = mesh.userData.uv as FaceUVs | undefined;
+  if (mesh.userData.paint && !uvFits(display, uv)) uv = mesh.userData.uv = smartUnwrap(display);
+  mesh.geometry = buildGeometry(display, degrees, uvFits(display, uv) ? uv : undefined);
   mesh.userData.displayPoly = modified ? display : undefined;
   mesh.userData.cage = modified ? buildGeometry(poly) : undefined;
   mesh.userData.geometryKey = modifierKey(mesh);
@@ -1077,7 +1205,9 @@ function applyData(mesh: THREE.Mesh, data: ObjectInfo) {
   mesh.rotation.set(...data.rotation);
   mesh.scale.fromArray(data.scale);
   const material = mesh.material as THREE.MeshStandardMaterial;
-  material.color.set(data.color);
+  mesh.userData.color = data.color;
+  // 그림을 입혔으면 그림 색 그대로 (바탕색을 곱하지 않는다)
+  material.color.set(mesh.userData.paint ? "#ffffff" : data.color);
   // 빛나기: 자기 색으로 스스로 빛난다. 1 을 넘으면 빛 번짐이 생긴다.
   const glow = Math.max(0, data.glow ?? 0);
   mesh.userData.glow = glow || undefined;
@@ -1100,4 +1230,52 @@ function applyData(mesh: THREE.Mesh, data: ObjectInfo) {
     particles.setColor(data.color);
     mesh.userData.effect = { ...data.effect };
   }
+}
+
+/** 실행 취소, 다시 실행 때 그림을 PNG 에서 다시 풀지 않도록 최근 그림을 기억해 둔다 */
+const paintCache = new Map<string, HTMLCanvasElement>();
+
+function remember(paint: PaintTexture) {
+  const copy = document.createElement("canvas");
+  copy.width = copy.height = paint.size;
+  copy.getContext("2d")!.drawImage(paint.canvas, 0, 0);
+  paintCache.delete(paint.url);
+  paintCache.set(paint.url, copy);
+  while (paintCache.size > 40) paintCache.delete(paintCache.keys().next().value!);
+}
+
+function loadPaint(url: string, color: string): PaintTexture {
+  const cached = paintCache.get(url);
+  if (cached) {
+    const paint = new PaintTexture(cached);
+    paint.url = url;
+    return paint;
+  }
+  // 파일에서 처음 열 때: 바탕색으로 먼저 보여 주고, 그림이 풀리면 바꾼다
+  const paint = new PaintTexture(color);
+  paint.url = url;
+  const img = new Image();
+  img.onload = () => {
+    paint.drawImage(img);
+    remember(paint);
+  };
+  img.src = url;
+  return paint;
+}
+
+/** 면마다 몇 번 조각(섬)인지: UV 가 맞닿은 면끼리 같은 조각 */
+function meshIslands(uvs: FaceUVs): number[] {
+  const key = (q: [number, number]) => `${q[0]},${q[1]}`;
+  const parent = uvs.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const owner = new Map<string, number>();
+  uvs.forEach((f, i) =>
+    f.forEach((q) => {
+      const k = key(q);
+      const o = owner.get(k);
+      if (o === undefined) owner.set(k, i);
+      else parent[find(i)] = find(o);
+    }),
+  );
+  return uvs.map((_, i) => find(i));
 }
