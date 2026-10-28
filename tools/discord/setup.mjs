@@ -76,6 +76,16 @@ const ROLES = [
     mentionable: false,
     permissions: bits(P.viewChannel, P.readHistory),
   },
+  {
+    // 💎 Pro 를 산 사람. 앱이 ‘디스코드로 로그인’ 할 때 이 역할이 있는지 보고 Pro 기능을 연다.
+    // 이름을 바꾸면 앱 쪽 확인도 같이 바꿔야 한다. 역할 ID 는 세팅 기록 맨 아래에 나온다.
+    key: "subscriber",
+    name: "💎 구독자",
+    color: 0x4fc3ff,
+    hoist: true,
+    mentionable: false,
+    permissions: "0",
+  },
 ];
 
 const APP_TAGS = [
@@ -109,6 +119,26 @@ const LAYOUT = [
       { key: "guide-photo", guide: "photo", name: "📖┃진주-사용법", type: TEXT, readOnly: true, topic: "바코 진주 (사진 꾸미기) 사용법" },
       { key: "guide-sound", guide: "sound", name: "📖┃파도-사용법", type: TEXT, readOnly: true, topic: "바코 파도 (효과음, 소리 편집) 사용법" },
       { key: "guide-video", guide: "video", name: "📖┃오로라-사용법", type: TEXT, readOnly: true, topic: "바코 오로라 (영상 편집) 사용법" },
+    ],
+  },
+  {
+    category: "💎 Pro",
+    channels: [
+      { key: "pro", name: "💎┃pro-안내", type: TEXT, readOnly: true, topic: "무료와 Pro 의 차이, Pro 를 사는 법, 앱에서 켜는 법" },
+      {
+        key: "license-help",
+        name: "🎫┃라이선스-문의",
+        type: FORUM,
+        topic: "구매, 디스코드 로그인, Pro 가 안 켜질 때 여기에 글을 올려 주세요. 결제 영수증이나 카드 번호 같은 개인정보는 올리지 말고 운영진에게 DM 으로 보내 주세요.",
+        tags: [
+          { name: "구매·결제", emoji_name: "💳" },
+          { name: "로그인이 안 돼요", emoji_name: "🔑" },
+          { name: "Pro 가 안 켜져요", emoji_name: "💎" },
+          { name: "기타", emoji_name: "💬" },
+          { name: "해결됨", emoji_name: "✅" },
+        ],
+      },
+      { key: "lounge", name: "💎┃구독자-라운지", type: TEXT, subscribersOnly: true, topic: "💎 구독자만 보이는 곳. Pro 템플릿·프리셋 소식과 먼저 써 보기" },
     ],
   },
   {
@@ -221,6 +251,7 @@ function welcomeMessages(ids) {
     [ids.bugs, `${ch(ids, "bugs")} 이상한 걸 찾으면 알려 주세요`],
     [ids.ideas, `${ch(ids, "ideas")} 갖고 싶은 기능을 제안해요`],
     [ids.showcase, `${ch(ids, "showcase")} 만든 작품을 자랑해요`],
+    [ids.pro, `${ch(ids, "pro")} 💎 Pro 가 뭔지, 어떻게 켜는지 봐요`],
   ];
   return [
     [
@@ -249,6 +280,60 @@ function welcomeMessages(ids) {
         title: "🧭 어디로 가면 될까요?",
         color: COLORS.mint,
         description: lines.filter(([id]) => id).map(([, text]) => text).join("\n"),
+      },
+    ],
+  ];
+}
+
+// 가격과 사는 곳이 정해지면 여기를 고치고 세팅을 다시 돌린다.
+const PRO_PURCHASE = "가격과 사는 방법은 곧 📣┃공지 에서 알려 드릴게요. 궁금한 점은 🎫┃라이선스-문의 에 남겨 주세요.";
+
+function proMessages(ids) {
+  return [
+    [
+      {
+        title: "💎 바코 스튜디오 Pro",
+        color: 0x4fc3ff,
+        description:
+          "바코 스튜디오는 **무료로도 충분히** 만들고 내보낼 수 있어요. Pro 는 게임·영상을 본격적으로 만드는 사람을 위한 전문가 기능을 열어 줘요.",
+        fields: [
+          {
+            name: "🆓 무료",
+            value: "• 모든 프로그램의 기본 편집\n• 저장과 내보내기 (로블록스용 포함)\n• AI 도우미 (내 API 키로)",
+          },
+          {
+            name: "💎 Pro",
+            value:
+              "• 🧊 빙산: 뼈대(리깅), 자동 가중치, 포즈·애니메이션\n" +
+              "• 🌌 오로라: 그래프 에디터, 모션 트래킹, 정확 내보내기\n" +
+              "• 🦪 진주: 액션 기록과 일괄 처리\n" +
+              "• 🌊 파도: 일괄 처리 (여러 파일 한 번에, 소리 크기 맞추기)\n" +
+              "• ❄️ 눈꽃: 타일맵 편집기 (Tiled 내보내기)\n" +
+              "• Pro 템플릿·프리셋 팩, " + ch(ids, "lounge") + " 입장",
+          },
+        ],
+      },
+      {
+        title: "🔑 Pro 켜는 법",
+        color: COLORS.mint,
+        description:
+          "**1.** Pro 를 사면 이 서버에서 **💎 구독자** 역할을 받아요.\n" +
+          "**2.** 앱에서 **디스코드로 로그인** 을 눌러요. 브라우저가 열리면 ‘승인’ 을 눌러 주세요.\n" +
+          "**3.** 앱이 💎 구독자 역할을 확인하면 Pro 기능이 바로 열려요.\n\n" +
+          "• 따로 입력하는 키는 없어요. 디스코드 계정으로만 확인해요.\n" +
+          "• 일주일에 한 번 인터넷으로 다시 확인해요. 역할이 없어지면 Pro 기능이 다시 잠겨요.\n" +
+          "• 이 서버를 나가면 역할도 사라지니 서버에 계속 있어 주세요.",
+      },
+      {
+        title: "💳 사는 법",
+        color: COLORS.sunflower,
+        description: PRO_PURCHASE,
+      },
+      {
+        title: "⚠️ 조심하세요",
+        color: 0xff6b6b,
+        description:
+          "운영진은 **절대 먼저 DM 으로 결제를 요구하지 않아요.** 디스코드 비밀번호, 토큰, 카드 번호를 달라는 사람은 사기예요. 이상한 메시지는 🦭 운영진에게 알려 주세요.",
       },
     ],
   ];
@@ -368,6 +453,17 @@ async function main() {
     { id: me.id, type: 1, allow: bits(P.viewChannel, P.sendMessages, P.embedLinks, P.manageMessages, P.addReactions), deny: "0" },
   ];
 
+  // 💎 구독자만 보이는 채널
+  const subscribersOnlyFor = () => [
+    { id: guildId, type: 0, allow: "0", deny: bits(P.viewChannel) },
+    { id: roleIds.member, type: 0, allow: "0", deny: bits(P.viewChannel) },
+    { id: roleIds.subscriber, type: 0, allow: bits(P.viewChannel, P.readHistory, P.sendMessages), deny: "0" },
+    { id: roleIds.staff, type: 0, allow: bits(P.viewChannel, P.readHistory, P.sendMessages), deny: "0" },
+    { id: me.id, type: 1, allow: bits(P.viewChannel, P.sendMessages, P.embedLinks), deny: "0" },
+  ];
+  const overwritesFor = (spec) =>
+    spec.readOnly ? { permission_overwrites: readOnlyFor(spec) } : spec.subscribersOnly ? { permission_overwrites: subscribersOnlyFor() } : {};
+
   let channels = await api("GET", `/guilds/${guildId}/channels`);
   const ids = {};
   const order = [];
@@ -384,7 +480,7 @@ async function main() {
     for (const spec of group.channels) {
       let channel = channels.find((c) => sameName(c.name, spec.name) && c.type !== CATEGORY);
       if (channel) {
-        const patch = { parent_id: category.id, ...(spec.readOnly ? { permission_overwrites: readOnlyFor(spec) } : {}) };
+        const patch = { parent_id: category.id, ...overwritesFor(spec) };
         channel = await api("PATCH", `/channels/${channel.id}`, patch, "바코 스튜디오 세팅");
         skip(spec.name);
       } else {
@@ -393,7 +489,7 @@ async function main() {
           type: spec.type,
           parent_id: category.id,
           ...(spec.topic && spec.type !== VOICE ? { topic: spec.topic } : {}),
-          ...(spec.readOnly ? { permission_overwrites: readOnlyFor(spec) } : {}),
+          ...overwritesFor(spec),
           ...(spec.tags ? { available_tags: spec.tags } : {}),
         };
         try {
@@ -453,6 +549,7 @@ async function main() {
   await api("PUT", `/channels/${ids.verify}/messages/${verifyMsg.id}/reactions/${encodeURIComponent(VERIFY_EMOJI)}/@me`);
   await upsertMessages("rules", "규칙", rulesMessages());
   await upsertMessages("welcome", "환영 안내", welcomeMessages(ids));
+  await upsertMessages("pro", "💎 Pro 안내", proMessages(ids));
   for (const group of LAYOUT) {
     for (const spec of group.channels) {
       if (spec.guide) await upsertMessages(spec.key, `${spec.name} 사용법`, guideMessages(spec.guide), { pin: false });
@@ -470,6 +567,9 @@ async function main() {
   say(`초대 링크: https://discord.gg/${invite.code}`);
   say("새 버전이 나오면 🆕┃업데이트 채널에 자동으로 알림이 올라가요.");
   say("✅ 인증은 ‘디스코드 인증 처리’ 워크플로가 5분마다 처리해요.\n");
+  say("역할 ID (앱에 넣을 때 쓰세요):");
+  for (const role of ROLES) say(`  ${role.name}: ${roleIds[role.key]}`);
+  say("");
 }
 
 main().catch((e) => {
