@@ -22,7 +22,55 @@ export interface MediaItem {
 /** 시간에 따라 바꿀 수 있는 값. keys 가 있으면 키프레임 사이를 이어서 쓴다. t 는 클립 시작부터의 초. */
 export interface Param {
   value: number;
-  keys?: { t: number; v: number }[];
+  keys?: Key[];
+}
+
+/**
+ * 이 키에서 다음 키로 가는 속도 곡선 (애프터 이펙트·프리미어의 그래프 에디터).
+ * 없으면 부드럽게(천천히 출발해 천천히 도착). [x1, y1, x2, y2] 는 CSS cubic-bezier 와 같은 조절점,
+ * "hold" 는 다음 키까지 값을 그대로 두었다가 순간 바꾼다.
+ */
+export type KeyEase = [number, number, number, number] | "hold";
+
+export interface Key {
+  t: number;
+  v: number;
+  ease?: KeyEase;
+}
+
+/** 그래프 에디터의 속도 곡선 모음 */
+export const EASE_PRESETS: { id: string; label: string; title: string; ease: KeyEase | undefined }[] = [
+  { id: "smooth", label: "부드럽게", title: "천천히 출발해서 천천히 도착 (기본, F9)", ease: undefined },
+  { id: "linear", label: "일정하게", title: "처음부터 끝까지 같은 속도", ease: [0, 0, 1, 1] },
+  { id: "in", label: "천천히 출발", title: "천천히 시작해서 점점 빠르게 (가속)", ease: [0.55, 0, 1, 1] },
+  { id: "out", label: "천천히 도착", title: "빠르게 시작해서 사뿐히 멈춤 (감속)", ease: [0, 0, 0.45, 1] },
+  { id: "strong", label: "강하게", title: "느리게 출발, 가운데서 휙, 느리게 도착", ease: [0.8, 0, 0.2, 1] },
+  { id: "back", label: "살짝 넘침", title: "목표를 살짝 지나쳤다 돌아옴 (튕기는 느낌)", ease: [0.3, 0, 0.35, 1.45] },
+  { id: "anticipate", label: "뒤로 갔다 출발", title: "출발 전에 살짝 반대로 움츠림", ease: [0.6, -0.4, 0.7, 1] },
+  { id: "hold", label: "멈춤", title: "다음 키까지 그대로 있다가 순간 바뀜", ease: "hold" },
+];
+
+/** 0~1 구간에서 조절점 곡선의 진행률 (x 로 시간을 풀고 y 를 돌려준다) */
+export function bezierEase(c: [number, number, number, number], u: number): number {
+  const [x1, y1, x2, y2] = c;
+  const bx = (s: number) => 3 * x1 * s * (1 - s) ** 2 + 3 * x2 * s * s * (1 - s) + s ** 3;
+  const by = (s: number) => 3 * y1 * s * (1 - s) ** 2 + 3 * y2 * s * s * (1 - s) + s ** 3;
+  // x 는 0~1 조절점이면 단조 증가 → 이분법으로 푼다
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (bx(mid) < u) lo = mid;
+    else hi = mid;
+  }
+  return by((lo + hi) / 2);
+}
+
+/** 키 a 에서 b 로 가는 진행률 */
+export function easeProgress(ease: KeyEase | undefined, u: number): number {
+  if (ease === "hold") return u >= 1 ? 1 : 0;
+  if (!ease) return u * u * (3 - 2 * u);
+  return bezierEase(ease, u);
 }
 
 export type ParamName = "x" | "y" | "scale" | "rotation" | "opacity" | "volume";
@@ -280,8 +328,7 @@ export function evalParam(p: Param, local: number): number {
     const b = keys[i + 1];
     if (local >= a.t && local <= b.t) {
       const u = (local - a.t) / Math.max(b.t - a.t, 1e-6);
-      const eased = u * u * (3 - 2 * u);
-      return a.v + (b.v - a.v) * eased;
+      return a.v + (b.v - a.v) * easeProgress(a.ease, u);
     }
   }
   return last.v;
@@ -290,8 +337,9 @@ export function evalParam(p: Param, local: number): number {
 /** 값 바꾸기. 키프레임을 쓰는 값이면 그 시간에 키프레임을 넣거나 고친다. */
 export function setParam(p: Param, local: number, v: number): Param {
   if (!p.keys) return { value: v };
+  const old = p.keys.find((k) => Math.abs(k.t - local) <= 1 / 240);
   const keys = p.keys.filter((k) => Math.abs(k.t - local) > 1 / 240);
-  keys.push({ t: local, v });
+  keys.push(old?.ease ? { t: local, v, ease: old.ease } : { t: local, v });
   keys.sort((a, b) => a.t - b.t);
   return { value: v, keys };
 }

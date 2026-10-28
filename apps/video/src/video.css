@@ -317,3 +317,29 @@
 }
 .scope-modes button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .scopes canvas { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 6px; image-rendering: auto; }
+
+/* 그래프 에디터 */
+.graph-editor { margin: 4px 0 8px; padding: 6px; border: 1px solid var(--border, #2a2f3a); border-radius: 6px; background: #12151c; outline: none; }
+.graph-editor:focus-visible { border-color: #6fb4ff; }
+.graph-top { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 4px; }
+.graph-modes { display: flex; gap: 2px; }
+.graph-modes button, .graph-presets button { padding: 2px 6px; border: 1px solid #2a2f3a; border-radius: 4px; background: #1b1f29; color: var(--text-dim); font-size: 11px; cursor: pointer; }
+.graph-modes button[aria-pressed="true"], .graph-presets button[aria-pressed="true"] { background: #23406a; border-color: #3b6fb0; color: #fff; }
+.graph-range { color: #5d6478; font-size: 10px; font-variant-numeric: tabular-nums; }
+.graph-wrap { width: 100%; overflow: hidden; }
+.graph-svg { display: block; cursor: crosshair; background: repeating-linear-gradient(90deg, transparent 0 39px, #1a1e27 39px 40px); }
+.graph-curve { fill: none; stroke: #6fb4ff; stroke-width: 1.6; }
+.graph-zero { stroke: #2f3544; stroke-dasharray: 3 3; }
+.graph-seg { fill: rgba(111, 180, 255, 0.07); }
+.graph-playhead { stroke: #ff5d5d; stroke-width: 1; pointer-events: none; }
+.graph-key { fill: #9aa3b8; stroke: #12151c; stroke-width: 1; cursor: grab; }
+.graph-key.on { fill: #ffc83d; }
+.graph-ease { display: flex; gap: 8px; margin-top: 6px; align-items: flex-start; }
+.graph-box { flex: none; background: #0e1016; border-radius: 4px; }
+.graph-box-frame { fill: none; stroke: #2a2f3a; }
+.graph-arm { stroke: #ffc83d; stroke-width: 1; opacity: 0.7; }
+.graph-handle { fill: #ffc83d; stroke: #12151c; cursor: grab; }
+.graph-handle.ghost { fill: #8a7a40; }
+.graph-presets { display: flex; flex-wrap: wrap; gap: 3px; align-content: flex-start; }
+.graph-seg-label { width: 100%; color: var(--text-dim); font-size: 10px; margin-bottom: 2px; }
+.graph-tip { margin: 6px 0 0; color: #5d6478; font-size: 10px; line-height: 1.4; }

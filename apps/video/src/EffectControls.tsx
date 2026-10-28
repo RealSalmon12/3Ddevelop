@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { GraphEditor } from "./GraphEditor";
 import {
   BLEND_MODES,
   DEFAULT_KEY,
@@ -46,6 +47,7 @@ export function EffectControls({ clip, time, preview, commit, set, onSeek, luts,
   const inside = time >= clip.start && time <= clip.start + (clip.out - clip.in) / clip.speed;
   const visual = clip.kind !== "audio";
   const audible = clip.kind === "audio" || clip.kind === "video";
+  const [graph, setGraph] = useState<ParamName | null>(null);
 
   const param = (name: ParamName, label: string, unit: string, opts: { min?: number; max?: number; step?: number; speed?: number } = {}) => {
     const p = clip.params[name];
@@ -59,7 +61,8 @@ export function EffectControls({ clip, time, preview, commit, set, onSeek, luts,
       (live ? preview : set)(c);
     };
     return (
-      <div className="fx-row" key={name}>
+      <Fragment key={name}>
+      <div className="fx-row">
         <button
           className={`fx-watch${p.keys ? " on" : ""}`}
           title={p.keys ? "키프레임 끄기 (모두 지우고 지금 값만 남겨요)" : "키프레임 켜기: 재생 위치를 옮기며 값을 바꾸면 그 사이가 움직여요"}
@@ -91,9 +94,19 @@ export function EffectControls({ clip, time, preview, commit, set, onSeek, luts,
             <button disabled={!next} title="다음 키프레임으로" onClick={() => next && onSeek(clip.start + next.t)}>
               ▶
             </button>
+            <button
+              className={graph === name ? "on" : ""}
+              disabled={keys.length < 2}
+              title={keys.length < 2 ? "키프레임이 2개 이상이면 그래프로 속도를 다듬을 수 있어요" : "그래프 에디터: 키 사이 속도 곡선 다듬기"}
+              onClick={() => setGraph(graph === name ? null : name)}
+            >
+              📈
+            </button>
           </span>
         )}
       </div>
+      {graph === name && keys.length >= 2 && <GraphEditor clip={clip} name={name} unit={unit} local={local} preview={preview} commit={commit} set={set} onSeek={onSeek} />}
+      </Fragment>
     );
   };
 
