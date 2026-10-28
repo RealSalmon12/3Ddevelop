@@ -5,11 +5,13 @@ import { ctx2d, pixels, putCanvas, createCanvas } from "./pixels";
 import { pixelTarget, replaceLayer, replaceTarget, type PixelTarget } from "./ops";
 import { flatten, hitLayer, layerCorners, renderDoc, toLayer, type LiveOverrides } from "./render";
 import { floodRegion, selectFromAlpha, selectPolygon, selectShape, type SelectMode, type Selection } from "./selection";
+import { emptyPath, flatten as flattenPath, toPath2D } from "./pen";
 
 export type ToolId =
   | "move"
   | "marquee"
   | "lasso"
+  | "pen"
   | "wand"
   | "crop"
   | "eyedropper"
@@ -97,6 +99,8 @@ interface Props {
   onNotify: (msg: string) => void;
   onNeedLayer: () => Layer | null;
   onStatus: (s: { x: number; y: number; zoom: number }) => void;
+  /** 펜 패스의 점 수가 바뀔 때 */
+  onPathChange?: (count: number, closed: boolean) => void;
 }
 
 const HANDLE = 8;
@@ -138,6 +142,8 @@ export function PhotoCanvas(props: Props) {
     let cloneOffset: { dx: number; dy: number } | null = null;
     let cloneFor: { x: number; y: number } | null = null;
     let lastPaint: { x: number; y: number } | null = null;
+    let path = emptyPath();
+    const pathChanged = () => latest.current.onPathChange?.(path.anchors.length, path.closed);
 
     type Drag =
       | { kind: "pan"; sx: number; sy: number; px: number; py: number }
@@ -147,6 +153,7 @@ export function PhotoCanvas(props: Props) {
       | { kind: "crop"; sx: number; sy: number }
       | { kind: "marquee"; sx: number; sy: number; ex: number; ey: number; mode: SelectMode }
       | { kind: "lasso"; pts: { x: number; y: number }[]; mode: SelectMode }
+      | { kind: "pen"; index: number; move: boolean }
       | { kind: "paint"; stroke: Stroke; target: PixelTarget; key: string }
       | { kind: "gradient"; sx: number; sy: number; ex: number; ey: number }
       | { kind: "shape"; sx: number; sy: number; ex: number; ey: number };
@@ -254,6 +261,58 @@ export function PhotoCanvas(props: Props) {
         ctx.arc(knob.x, knob.y, 5, 0, Math.PI * 2);
         ctx.fillStyle = "#4da3ff";
         ctx.fill();
+      }
+
+      // 펜 패스
+      if (path.anchors.length) {
+        const toScreen = (x: number, y: number) => ({ x: ox + x * s, y: oy + y * s });
+        ctx.save();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "#4da3ff";
+        ctx.stroke(toPath2D(path, toScreen));
+        const last = path.anchors[path.anchors.length - 1];
+        // 다음 점까지 미리 보기 (고무줄)
+        if (p.tool === "pen" && !path.closed && mouse && !drag) {
+          const a = toScreen(last.x, last.y);
+          const c = toScreen(last.x + last.hx, last.y + last.hy);
+          const m = toScreen(mouse.x, mouse.y);
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.quadraticCurveTo(c.x, c.y, m.x, m.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        // 손잡이: 지금 끄는 점, 없으면 마지막 점
+        const active = drag?.kind === "pen" ? path.anchors[drag.index] : last;
+        if (active && (active.hx || active.hy)) {
+          const a = toScreen(active.x, active.y);
+          for (const k of [1, -1]) {
+            const h = toScreen(active.x + k * active.hx, active.y + k * active.hy);
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(h.x, h.y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(h.x, h.y, 3.5, 0, Math.PI * 2);
+            ctx.fillStyle = "#fff";
+            ctx.fill();
+            ctx.stroke();
+          }
+        }
+        path.anchors.forEach((q, i) => {
+          const a = toScreen(q.x, q.y);
+          ctx.fillStyle = q === active ? "#4da3ff" : "#fff";
+          ctx.fillRect(a.x - 4, a.y - 4, 8, 8);
+          ctx.strokeRect(a.x - 4, a.y - 4, 8, 8);
+          // 처음 점 위에 오면 닫힌다는 표시
+          if (i === 0 && p.tool === "pen" && !path.closed && path.anchors.length > 2 && mouse && Math.hypot((mouse.x - q.x) * s, (mouse.y - q.y) * s) < 9) {
+            ctx.beginPath();
+            ctx.arc(a.x, a.y, 9, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        });
+        ctx.restore();
       }
 
       // 끄는 중인 모양
@@ -405,6 +464,30 @@ export function PhotoCanvas(props: Props) {
         case "lasso":
           drag = { kind: "lasso", pts: [pt], mode: modeOf(e) };
           return;
+        case "pen": {
+          const near = path.anchors.findIndex((q) => Math.hypot((q.x - pt.x) * s, (q.y - pt.y) * s) < 9);
+          if (near >= 0 && (e.ctrlKey || e.metaKey)) {
+            // Ctrl+끌기: 점 옮기기
+            drag = { kind: "pen", index: near, move: true };
+          } else if (near >= 0 && e.altKey) {
+            // Alt+클릭: 곡선 ↔ 뾰족한 점
+            const q = path.anchors[near];
+            if (q.hx || q.hy) {
+              q.hx = 0;
+              q.hy = 0;
+            } else drag = { kind: "pen", index: near, move: false };
+          } else if (near === 0 && !path.closed && path.anchors.length > 2) {
+            path.closed = true;
+            p.onNotify("패스를 닫았어요. Enter: 선택 영역으로 · 위 막대: 선 긋기, 채우기");
+          } else {
+            if (path.closed) path = emptyPath();
+            path.anchors.push({ x: pt.x, y: pt.y, hx: 0, hy: 0 });
+            drag = { kind: "pen", index: path.anchors.length - 1, move: false };
+          }
+          pathChanged();
+          redraw();
+          return;
+        }
         case "wand": {
           const src = p.options.wandAllLayers ? getComposite() : (() => {
             const l = selectedLayer();
@@ -540,7 +623,7 @@ export function PhotoCanvas(props: Props) {
       mouse = pt;
       status();
       if (!drag) {
-        if (PAINT_TOOLS.includes(p.tool)) redraw();
+        if (PAINT_TOOLS.includes(p.tool) || (p.tool === "pen" && path.anchors.length)) redraw();
         return;
       }
       switch (drag.kind) {
@@ -589,6 +672,26 @@ export function PhotoCanvas(props: Props) {
         case "lasso":
           drag.pts.push(pt);
           break;
+        case "pen": {
+          const q = path.anchors[drag.index];
+          if (drag.move) {
+            q.x = pt.x;
+            q.y = pt.y;
+          } else {
+            let hx = pt.x - q.x;
+            let hy = pt.y - q.y;
+            if (e.shiftKey) {
+              // 45° 단위
+              const len = Math.hypot(hx, hy);
+              const a = Math.round(Math.atan2(hy, hx) / (Math.PI / 4)) * (Math.PI / 4);
+              hx = Math.cos(a) * len;
+              hy = Math.sin(a) * len;
+            }
+            q.hx = hx;
+            q.hy = hy;
+          }
+          break;
+        }
         case "paint": {
           const events = e.getCoalescedEvents?.() ?? [e];
           const inv = drag.target.matrix.inverse();
@@ -722,6 +825,53 @@ export function PhotoCanvas(props: Props) {
       redraw();
     };
 
+    /** 펜 패스로 할 일 (메뉴, 위 막대, 키에서 photo-path 이벤트로) */
+    const onPath = (e: Event) => {
+      const cmd = (e as CustomEvent<string>).detail;
+      const p = latest.current;
+      if (cmd === "clear") path = emptyPath();
+      else if (cmd === "undo") {
+        if (path.closed) path.closed = false;
+        else path.anchors.pop();
+      } else if (path.anchors.length < 2) return p.onNotify("펜(P)으로 점을 두 개 이상 찍어 주세요.");
+      else if (cmd === "select") {
+        if (path.anchors.length < 3 && !path.anchors.some((q) => q.hx || q.hy)) return p.onNotify("선택 영역을 만들려면 점이 세 개 이상 필요해요.");
+        p.onSelection(selectPolygon(p.selection, p.doc.width, p.doc.height, "replace", flattenPath(path), p.options.feather));
+      } else if (cmd === "stroke" || cmd === "fill") {
+        const t = target();
+        if (!t) return;
+        const base = pixels(t.src);
+        if (!base) return;
+        const inv = t.matrix.inverse();
+        const local = toPath2D(path, (x, y) => {
+          const q = inv.transformPoint(new DOMPoint(x, y));
+          return { x: q.x, y: q.y };
+        });
+        const out = createCanvas(base.width, base.height);
+        const g = ctx2d(out);
+        g.drawImage(base, 0, 0);
+        const color = t.kind === "mask" ? (luma(p.fg) < 128 ? "#000000" : "#ffffff") : p.fg;
+        const b = p.options.brush;
+        g.globalAlpha = b.opacity / 100;
+        if (cmd === "fill") {
+          g.fillStyle = color;
+          g.fill(local, "nonzero");
+        } else {
+          g.strokeStyle = color;
+          g.lineWidth = Math.max(1, b.size / Math.hypot(t.matrix.a, t.matrix.b));
+          g.lineCap = "round";
+          g.lineJoin = "round";
+          g.stroke(local);
+        }
+        const sel = localSelection(p.selection?.canvas ?? null, t.matrix, base.width, base.height);
+        const id = putCanvas(sel ? maskThrough(base, out, sel) : out);
+        p.onSet((d) => replaceTarget(d, t.layer.id, t.kind, id));
+      }
+      pathChanged();
+      redraw(true);
+    };
+    window.addEventListener("photo-path", onPath);
+
     const ants = setInterval(() => {
       if (!latest.current.selection) return;
       antsOffset = (antsOffset + 1) % 8;
@@ -751,6 +901,7 @@ export function PhotoCanvas(props: Props) {
       canvas.removeEventListener("pointerleave", onLeave);
       canvas.removeEventListener("wheel", onWheel);
       window.removeEventListener("photo-view", onView);
+      window.removeEventListener("photo-path", onPath);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("keyup", onKey);
     };

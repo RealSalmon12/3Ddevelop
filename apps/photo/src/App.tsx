@@ -74,6 +74,7 @@ const TOOLS: ToolDef[] = [
   { id: "move", label: "이동", icon: "✥", key: "V", hint: "레이어를 끌어 옮겨요. 모서리: 크기, 위 동그라미: 회전 (Shift: 15° 단위)" },
   { id: "marquee", label: "선택 윤곽", icon: "⬚", key: "M", hint: "끌어서 사각형/타원으로 선택해요. Shift: 더하기 · Alt: 빼기 · Shift+M: 모양 바꾸기" },
   { id: "lasso", label: "올가미", icon: "➰", key: "L", hint: "자유롭게 그려서 선택해요. Shift: 더하기 · Alt: 빼기" },
+  { id: "pen", label: "펜", icon: "✒", key: "P", hint: "클릭: 곧은 점 · 끌기: 곡선 · 처음 점 클릭: 닫기 · Ctrl+끌기: 점 옮기기 · Alt+클릭: 곡선↔뾰족 · Enter: 선택 영역으로" },
   { id: "wand", label: "자동 선택", icon: "✨", key: "W", hint: "비슷한 색인 곳을 한 번에 선택해요 (허용치로 범위 조절)" },
   { id: "crop", label: "자르기", icon: "⛶", key: "C", hint: "남길 부분을 끌어서 고르고 Enter" },
   { id: "eyedropper", label: "스포이트", icon: "💧", key: "I", hint: "그림에서 색을 찍어 전경색으로 (붓 도구에서 Alt+클릭도 돼요)" },
@@ -137,6 +138,8 @@ export function App() {
   const [selection, setSelectionState] = useState<Selection | null>(null);
   const lastSelection = useRef<Selection | null>(null);
   const [crop, setCrop] = useState<CropRect | null>(null);
+  const [pen, setPen] = useState({ count: 0, closed: false });
+  const pathCmd = (cmd: "select" | "stroke" | "fill" | "clear" | "undo") => window.dispatchEvent(new CustomEvent("photo-path", { detail: cmd }));
   const [cloneSource, setCloneSource] = useState<{ x: number; y: number } | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -618,6 +621,11 @@ export function App() {
         e.preventDefault();
         return fill(fg);
       }
+      if (tool === "pen" && pen.count) {
+        if (key === "enter") return pathCmd("select");
+        if (key === "escape") return pathCmd("clear");
+        if (key === "delete" || key === "backspace") return pathCmd("undo");
+      }
       if (key === "enter" && tool === "crop") return applyCrop();
       if (key === "escape") {
         if (tool === "crop") setCrop(null);
@@ -753,6 +761,7 @@ export function App() {
         { label: "선택 해제", shortcut: "Ctrl+D", disabled: !selection, onSelect: () => setSelection(null) },
         { label: "다시 선택", shortcut: "Ctrl+Shift+D", onSelect: () => lastSelection.current && setSelection(lastSelection.current) },
         { label: "반전", shortcut: "Ctrl+Shift+I", onSelect: () => setSelection(invertSelection(selection, doc.width, doc.height)) },
+        { label: "펜 패스를 선택 영역으로", shortcut: "Enter", disabled: !pen.count, onSelect: () => pathCmd("select") },
         { label: "레이어 모양대로 선택", disabled: !selected || selected.kind === "adjust", onSelect: () => selected && void selectLayerPixels(selected.id) },
         { label: "선택 영역 다듬기: 페더 (흐리게)…", disabled: !selection, onSelect: () => askNumber("페더 반경 (px)", 8, (v) => selection && setSelection(featherSelection(selection, v))) },
         { label: "선택 영역 확대…", disabled: !selection, onSelect: () => askNumber("넓힐 만큼 (px)", 4, (v) => selection && setSelection(growSelection(selection, v))) },
@@ -944,6 +953,7 @@ export function App() {
           notify("원본 위치를 찍었어요. 이제 칠하면 그곳을 복사해요.");
         }}
         onNotify={notify}
+        onPathChange={(count, closed) => setPen({ count, closed })}
         onNeedLayer={() => {
           if (doc.layers.length) return null;
           const layer = blankLayer(doc, "레이어 1");
@@ -989,6 +999,27 @@ export function App() {
             )}
             <NumberField label="페더" value={options.feather} min={0} max={200} unit="px" onChange={(v) => setOptions({ ...options, feather: v })} />
             <span className="ps-hint">Shift: 더하기 · Alt: 빼기</span>
+          </>
+        )}
+        {tool === "pen" && (
+          <>
+            <span className="ps-seg">
+            <button disabled={!pen.count} title="패스 안을 선택 영역으로 (Enter)" onClick={() => pathCmd("select")}>
+              ⬚ 선택 영역으로
+            </button>
+            <button disabled={pen.count < 2} title="브러시 크기와 전경색으로 패스를 따라 선을 그어요" onClick={() => pathCmd("stroke")}>
+              ✎ 선 긋기
+            </button>
+            <button disabled={pen.count < 2} title="패스 안을 전경색으로 채워요" onClick={() => pathCmd("fill")}>
+              ■ 채우기
+            </button>
+            <button disabled={!pen.count} title="패스 지우기 (Esc)" onClick={() => pathCmd("clear")}>
+              지우기
+            </button>
+            </span>
+            <span className="ps-hint">
+              {pen.count ? `점 ${pen.count}개${pen.closed ? " · 닫힘" : ""} · Backspace: 마지막 점 빼기` : "클릭: 곧은 점 · 끌기: 곡선 · 처음 점 클릭: 닫기"}
+            </span>
           </>
         )}
         {tool === "wand" && (
