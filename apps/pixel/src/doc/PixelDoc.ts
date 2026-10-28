@@ -1,6 +1,7 @@
 import { hexToRgba } from "./color";
 import { DEFAULT_PALETTE } from "./color";
 import { blendOnto, createRaster, ROW_ALPHABET, setPixel, type PixelRows, type Raster } from "./raster";
+import { cloneMap, sanitizeMap, type Tilemap } from "./tilemap";
 
 /**
  * 레이어 한 장. 프레임마다 그림(셀)이 하나씩 있다.
@@ -72,6 +73,7 @@ interface HistoryEntry {
   frames: Frame[];
   tags: Tag[];
   palette: string[];
+  tilemap: Tilemap | null;
   layers: { id: number; name: string; visible: boolean; opacity: number; locked: boolean; cels: Uint8ClampedArray<ArrayBuffer>[] }[];
   bytes: number;
 }
@@ -95,6 +97,7 @@ interface SavedFileV2 {
   palette: string[];
   frames: Frame[];
   tags?: Tag[];
+  tilemap?: Tilemap;
   layers: { name: string; visible: boolean; opacity: number; locked: boolean; cels: string[] }[];
 }
 
@@ -136,6 +139,8 @@ export class PixelDoc {
   active = 0;
   frame = 0;
   palette: string[] = [...DEFAULT_PALETTE];
+  /** 이 그림을 타일셋으로 쓰는 맵 (없으면 null) */
+  tilemap: Tilemap | null = null;
   /** 고른 칸 (1 이면 골라짐). 없으면 전체. */
   selection: Uint8Array | null = null;
   private nextId = 1;
@@ -201,6 +206,7 @@ export class PixelDoc {
       frames: this.frames.map((f) => ({ ...f })),
       tags: this.tags.map((t) => ({ ...t })),
       palette: this.palette,
+      tilemap: this.tilemap ? cloneMap(this.tilemap) : null,
       layers,
       bytes,
     };
@@ -216,6 +222,7 @@ export class PixelDoc {
     this.frames = entry.frames.map((f) => ({ ...f }));
     this.tags = entry.tags.map((t) => ({ ...t }));
     this.palette = entry.palette;
+    this.tilemap = entry.tilemap ? cloneMap(entry.tilemap) : null;
     this.layers = entry.layers.map((l) => ({
       id: l.id,
       name: l.name,
@@ -586,6 +593,7 @@ export class PixelDoc {
     this.nextId = 1;
     this.frames = [{ duration: DEFAULT_DURATION }];
     this.tags = [];
+    this.tilemap = null;
     this.layers = [this.makeLayer("레이어 1")];
     this.active = 0;
     this.frame = 0;
@@ -612,6 +620,7 @@ export class PixelDoc {
       palette: this.palette,
       frames: this.frames,
       tags: this.tags,
+      ...(this.tilemap ? { tilemap: this.tilemap } : {}),
       layers: this.layers.map((l) => ({ name: l.name, visible: l.visible, opacity: l.opacity, locked: l.locked, cels: l.cels.map((c) => toBase64(c.data)) })),
     };
     return JSON.stringify(file);
@@ -651,6 +660,7 @@ export class PixelDoc {
         return layer;
       });
       this.frame = Math.min(Math.max(0, file.frame | 0), this.frames.length - 1);
+      this.tilemap = sanitizeMap(file.tilemap);
     } else {
       this.layers = file.layers.map((l) => {
         const layer = this.makeLayer(l.name);
@@ -668,6 +678,13 @@ export class PixelDoc {
     this.load(text);
     this.revision = this.nextRevision++;
     this.emit();
+  }
+
+  /** 타일맵 편집기에서 고친 맵을 문서에 (실행 취소 한 번으로 되돌린다) */
+  setTilemap(map: Tilemap | null) {
+    this.change(() => {
+      this.tilemap = map ? cloneMap(map) : null;
+    });
   }
 
   // ---------- 글자로 적은 그림 (AI, 예제) ----------
