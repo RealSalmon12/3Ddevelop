@@ -67,6 +67,12 @@ async function handlePickFiles(event: IpcMainInvokeEvent, request: PickFilesRequ
   return result.canceled ? [] : result.filePaths;
 }
 
+async function handlePickFolder(event: IpcMainInvokeEvent): Promise<string | null> {
+  const win = BrowserWindow.fromWebContents(event.sender)!;
+  const result = await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"] });
+  return result.canceled ? null : (result.filePaths[0] ?? null);
+}
+
 async function handleReadFile(_event: IpcMainInvokeEvent, path: string): Promise<Uint8Array | null> {
   try {
     return new Uint8Array(await readFile(path));
@@ -156,6 +162,7 @@ export function startSuiteApp(options: SuiteAppOptions) {
   ipcMain.handle(IPC.fileSave, handleSaveFile);
   ipcMain.handle(IPC.fileOpen, handleOpenFile);
   ipcMain.handle(IPC.filePick, handlePickFiles);
+  ipcMain.handle(IPC.folderPick, handlePickFolder);
   ipcMain.handle(IPC.fileRead, handleReadFile);
   const autosavePath = () => join(app.getPath("userData"), `autosave-${options.appId}.json`);
   ipcMain.handle(IPC.autosaveRead, async () => {

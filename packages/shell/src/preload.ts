@@ -22,6 +22,7 @@ export function exposeSuiteBridge(appId: string) {
       save: (request: SaveFileRequest) => ipcRenderer.invoke(IPC.fileSave, request),
       open: (request: OpenFileRequest) => ipcRenderer.invoke(IPC.fileOpen, request),
       pick: (request: PickFilesRequest) => ipcRenderer.invoke(IPC.filePick, request),
+      pickFolder: () => ipcRenderer.invoke(IPC.folderPick),
       read: (path: string) => ipcRenderer.invoke(IPC.fileRead, path),
       pathOf: (file: File) => webUtils.getPathForFile(file),
     },

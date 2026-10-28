@@ -59,6 +59,8 @@ import { readPsd, writePsd } from "./psd";
 import { LayersPanel, PropertiesPanel, setHistogramDoc, Histogram } from "./Panels";
 import { createCanvas, ctx2d, dataUrlToBlob, pixelsAsync, putBlank, putCanvas } from "./pixels";
 import { LiquifyDialog } from "./LiquifyDialog";
+import { ActionsPanel, BatchDialog } from "./ActionsPanel";
+import { loadActions, playAction, saveActions, syncStep, textStep, type PhotoAction, type Step } from "./actions";
 import { flatten, layerMatrix, layerToDocCanvas } from "./render";
 import { featherSelection, growSelection, invertSelection, selectAll, selectFromAlpha, type Selection } from "./selection";
 
@@ -122,6 +124,7 @@ type Dialog =
   | { kind: "imageSize" }
   | { kind: "canvasSize" }
   | { kind: "export" }
+  | { kind: "batch" }
   | { kind: "filter"; filter: FilterKind; orig: PhotoDoc }
   | { kind: "liquify"; t: PixelTarget; base: HTMLCanvasElement; sel: HTMLCanvasElement | null }
   | null;
@@ -152,6 +155,65 @@ export function App() {
   const updater = useUpdater(notify);
   const selected = doc.layers.find((l) => l.id === selectedId) ?? null;
   const name = filePath ? baseName(filePath) : "제목 없음";
+
+  /* ───── 액션 (기록과 실행) ───── */
+  const [photoActions, setPhotoActions] = useState<PhotoAction[]>(loadActions);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [actionId, setActionId] = useState<string | null>(() => photoActions[0]?.id ?? null);
+  const [recording, setRecording] = useState<string | null>(null);
+  const recordingRef = useRef<string | null>(null);
+  recordingRef.current = recording;
+  useEffect(() => saveActions(photoActions), [photoActions]);
+  /** 기록 중이면 단계를 하나 남긴다. ref 는 이 단계가 따라갈 레이어 (나중에 값을 고치면 단계도 바뀐다) */
+  const rec = (step: Step, ref?: number) => {
+    const id = recordingRef.current;
+    if (!id) return;
+    setPhotoActions((list) => list.map((a) => (a.id === id ? { ...a, steps: [...a.steps, { step, on: true, ref }] } : a)));
+  };
+  const prevDoc = useRef(doc);
+  useEffect(() => {
+    const prev = prevDoc.current;
+    prevDoc.current = doc;
+    const id = recordingRef.current;
+    if (!id || prev === doc) return;
+    setPhotoActions((list) =>
+      list.map((a) => {
+        if (a.id !== id) return a;
+        const refs = new Set(a.steps.map((s) => s.ref).filter((r) => r !== undefined));
+        let steps = a.steps.map((s) => {
+          const l = s.ref === undefined ? null : doc.layers.find((x) => x.id === s.ref);
+          const old = s.ref === undefined ? null : prev.layers.find((x) => x.id === s.ref);
+          return l && l !== old ? syncStep(s, l, doc) : s;
+        });
+        // 기록 전부터 있던 레이어의 보정·불투명도·혼합·스타일이 바뀌면 ‘레이어 스타일’ 단계
+        for (const l of doc.layers) {
+          if (refs.has(l.id) && !steps.some((s) => s.ref === l.id && s.step.op === "style")) continue;
+          const o = prev.layers.find((x) => x.id === l.id);
+          if (!o || o === l) continue;
+          const changed = o.opacity !== l.opacity || o.blend !== l.blend || o.effects !== l.effects || (l.kind === "raster" && o.kind === "raster" && o.adjust !== l.adjust);
+          if (!changed) continue;
+          const last = steps[steps.length - 1];
+          const s = syncStep({ step: { op: "style", opacity: 1, blend: "source-over", effects: l.effects }, on: true, ref: l.id }, l, doc);
+          steps = last?.ref === l.id && last.step.op === "style" ? [...steps.slice(0, -1), s] : [...steps, s];
+        }
+        return { ...a, steps };
+      }),
+    );
+  }, [doc]);
+  const playOn = async (a: PhotoAction) => {
+    const r = await playAction(a, history.get(), selectedId);
+    history.set(r.doc);
+    selectLayer(r.current);
+    fit();
+    notify(r.skipped.length ? `‘${a.name}’ 실행. 건너뛴 단계: ${r.skipped.join(", ")}` : `‘${a.name}’ 액션을 실행했어요. 마음에 안 들면 Ctrl+Z 한 번으로 되돌려요.`);
+  };
+  const toggleRecord = (id: string | null) => {
+    setRecording(id);
+    if (id) {
+      setActionId(id);
+      notify("● 기록 중이에요. 메뉴로 하는 작업이 순서대로 남아요.");
+    } else notify("기록을 멈췄어요. ▶ 실행이나 일괄 처리로 다시 쓸 수 있어요.");
+  };
 
   const setSelection = (s: Selection | null) => {
     if (selection) lastSelection.current = selection;
@@ -450,6 +512,7 @@ export function App() {
   const addAdjustment = (kind: AdjustKind) => {
     const layer = newAdjustLayer(doc, kind);
     const withMask = addMask({ ...doc, layers: [layer] }, layer, selection).layers[0];
+    rec({ op: "adjust", kind, settings: structuredClone(layer.settings), opacity: layer.opacity, blend: layer.blend }, layer.id);
     addLayer(withMask, true);
     setSelection(null);
   };
@@ -466,6 +529,7 @@ export function App() {
     const c = flatten({ ...doc, background: null });
     const b = opaqueBounds(c);
     if (!b) return notify("그림이 비어 있어요.");
+    rec({ op: "trim" });
     history.set((d) => cropDoc(d, b));
     fit();
   };
@@ -473,6 +537,7 @@ export function App() {
   const applyCrop = () => {
     const r = crop ?? (selection ? selection.bounds : null);
     if (!r) return notify("먼저 남길 부분을 끌어서 골라 주세요.");
+    rec({ op: "crop", rx: r.x / doc.width, ry: r.y / doc.height, rw: r.w / doc.width, rh: r.h / doc.height });
     history.set((d) => cropDoc(d, r));
     setCrop(null);
     setSelection(null);
@@ -493,6 +558,7 @@ export function App() {
 
   const addText = (x: number, y: number) => {
     const layer = { ...newTextLayer(doc), x, y, color: fg === "#000000" ? "#ffffff" : fg };
+    rec(textStep(layer, doc), layer.id);
     addLayer(layer);
     setTool("move");
     requestAnimationFrame(() => {
@@ -567,6 +633,10 @@ export function App() {
         e.preventDefault();
         return setSearchOpen(true);
       }
+      if (e.key === "F9" && e.altKey) {
+        e.preventDefault();
+        return setActionsOpen((v) => !v);
+      }
       if (e.key === "F5" && e.shiftKey) {
         e.preventDefault();
         return void contentFill();
@@ -591,7 +661,7 @@ export function App() {
           i: shift ? () => setSelection(invertSelection(selection, doc.width, doc.height)) : alt ? () => setDialog({ kind: "imageSize" }) : adjustShortcut("invert"),
           j: () => void copyToLayer(shift),
           g: alt ? toggleClip : undefined,
-          e: shift ? () => history.set((d) => mergeVisible(d, false)) : () => mergeSelected(),
+          e: shift ? () => (rec({ op: "mergeVisible" }), history.set((d) => mergeVisible(d, false))) : () => mergeSelected(),
           l: adjustShortcut("levels"),
           m: adjustShortcut("curves"),
           u: adjustShortcut("hueSat"),
@@ -698,6 +768,7 @@ export function App() {
         { label: "내보내기 (PNG, JPG, WebP)…", shortcut: "Ctrl+Shift+Alt+W", onSelect: () => setDialog({ kind: "export" }) },
         { label: "PNG 로 빠르게 내보내기", onSelect: () => void exportImage("png", 100, 1) },
         { label: "포토샵 PSD 로 내보내기 (레이어 유지)…", onSelect: () => void exportPsd() },
+        { label: "자동화: 일괄 처리 (여러 사진에 액션)…", onSelect: () => setDialog({ kind: "batch" }) },
       ],
     },
     {
@@ -722,10 +793,10 @@ export function App() {
         ...ADJUSTMENTS.map((a) => ({ label: `조정: ${a.label}`, shortcut: a.shortcut, onSelect: () => addAdjustment(a.kind) })),
         { label: "이미지 크기…", shortcut: "Ctrl+Alt+I", onSelect: () => setDialog({ kind: "imageSize" }) },
         { label: "캔버스 크기…", shortcut: "Ctrl+Alt+C", onSelect: () => setDialog({ kind: "canvasSize" }) },
-        { label: "시계 방향 90° 회전", onSelect: () => (history.set((d) => rotateDoc(d, 1)), fit()) },
-        { label: "반시계 방향 90° 회전", onSelect: () => (history.set((d) => rotateDoc(d, -1)), fit()) },
-        { label: "캔버스 좌우 뒤집기", onSelect: () => history.set((d) => flipDoc(d, true)) },
-        { label: "캔버스 상하 뒤집기", onSelect: () => history.set((d) => flipDoc(d, false)) },
+        { label: "시계 방향 90° 회전", onSelect: () => (rec({ op: "rotate", dir: 1 }), history.set((d) => rotateDoc(d, 1)), fit()) },
+        { label: "반시계 방향 90° 회전", onSelect: () => (rec({ op: "rotate", dir: -1 }), history.set((d) => rotateDoc(d, -1)), fit()) },
+        { label: "캔버스 좌우 뒤집기", onSelect: () => (rec({ op: "flip", horizontal: true }), history.set((d) => flipDoc(d, true))) },
+        { label: "캔버스 상하 뒤집기", onSelect: () => (rec({ op: "flip", horizontal: false }), history.set((d) => flipDoc(d, false))) },
         { label: "선택 영역으로 자르기", disabled: !selection, onSelect: applyCrop },
         { label: "투명한 여백 잘라내기", onSelect: () => void trimToContent() },
       ],
@@ -746,8 +817,8 @@ export function App() {
         { label: selected?.clip ? "클리핑 마스크 풀기" : "클리핑 마스크 만들기 (아래 레이어 모양 안에만)", shortcut: "Ctrl+Alt+G", disabled: !selected || doc.layers[0]?.id === selected.id, onSelect: toggleClip },
         { label: "래스터화 (픽셀로 굳히기)", disabled: !selected || selected.kind === "adjust", onSelect: doSelected((l) => history.set((d) => rasterize(d, l))) },
         { label: "아래 레이어와 병합", shortcut: "Ctrl+E", disabled: !selected, onSelect: mergeSelected },
-        { label: "보이는 레이어 병합", shortcut: "Ctrl+Shift+E", onSelect: () => history.set((d) => mergeVisible(d, false)) },
-        { label: "이미지 병합 (모두 하나로)", onSelect: () => (history.set((d) => mergeVisible(d, true)), selectLayer(null)) },
+        { label: "보이는 레이어 병합", shortcut: "Ctrl+Shift+E", onSelect: () => (rec({ op: "mergeVisible" }), history.set((d) => mergeVisible(d, false))) },
+        { label: "이미지 병합 (모두 하나로)", onSelect: () => (rec({ op: "flatten" }), history.set((d) => mergeVisible(d, true)), selectLayer(null)) },
         { label: "앞으로 가져오기", shortcut: "Ctrl+]", disabled: !selected, onSelect: () => arrange("up") },
         { label: "뒤로 보내기", shortcut: "Ctrl+[", disabled: !selected, onSelect: () => arrange("down") },
         { label: "맨 앞으로", shortcut: "Ctrl+Shift+]", disabled: !selected, onSelect: () => arrange("top") },
@@ -778,6 +849,7 @@ export function App() {
     {
       label: "보기",
       items: [
+        { label: recording ? "액션 기록 멈추기" : "액션 패널", shortcut: "Alt+F9", onSelect: () => (recording ? toggleRecord(null) : setActionsOpen((v) => !v)) },
         { label: "화면에 맞추기", shortcut: "Ctrl+0", onSelect: () => photoView("fit") },
         { label: "100% (실제 픽셀)", shortcut: "Ctrl+1", onSelect: () => photoView("actual") },
         { label: "확대", shortcut: "Ctrl++", onSelect: () => photoView("in") },
@@ -1096,6 +1168,8 @@ export function App() {
           height={doc.height}
           onClose={() => setDialog(null)}
           onApply={(w, h) => {
+            const same = Math.abs(w / h - doc.width / doc.height) < 0.01;
+            rec({ op: "resize", mode: same ? "long" : "exact", width: w, height: h });
             history.set((d) => resampleDoc(d, w, h));
             setDialog(null);
             fit();
@@ -1111,6 +1185,7 @@ export function App() {
           anchor
           onClose={() => setDialog(null)}
           onApply={(w, h, ax, ay) => {
+            rec({ op: "canvas", width: w, height: h, ax, ay });
             history.set((d) => canvasSize(d, w, h, ax, ay));
             setDialog(null);
             fit();
@@ -1146,12 +1221,28 @@ export function App() {
             history.commit();
             setDialog(null);
           }}
-          onApply={() => {
+          onApply={(amount) => {
+            rec({ op: "filter", kind: dialog.filter, amount });
             history.commit();
             setDialog(null);
           }}
         />
       )}
+      {actionsOpen && (
+        <ActionsPanel
+          actions={photoActions}
+          setActions={setPhotoActions}
+          selected={actionId}
+          onSelect={setActionId}
+          recording={recording}
+          onRecord={toggleRecord}
+          onPlay={(a) => void playOn(a)}
+          onBatch={() => setDialog({ kind: "batch" })}
+          onClose={() => setActionsOpen(false)}
+          notify={notify}
+        />
+      )}
+      {dialog?.kind === "batch" && <BatchDialog actions={photoActions} initial={actionId} decode={decodePhoto} onClose={() => setDialog(null)} notify={notify} />}
 
       <CommandSearch open={searchOpen} commands={menuCommands(menus)} onClose={() => setSearchOpen(false)} />
       <Toast message={toast} />
@@ -1363,7 +1454,7 @@ function ExportDialog({ doc, onClose, onExport }: { doc: PhotoDoc; onClose: () =
   );
 }
 
-function FilterDialog({ filter, onPreview, onCancel, onApply }: { filter: FilterKind; onPreview: (amount: number) => Promise<void>; onCancel: () => void; onApply: () => void }) {
+function FilterDialog({ filter, onPreview, onCancel, onApply }: { filter: FilterKind; onPreview: (amount: number) => Promise<void>; onCancel: () => void; onApply: (amount: number) => void }) {
   const def = FILTERS.find((f) => f.kind === filter)!;
   const [amount, setAmount] = useState(def.initial);
   const busy = useRef(false);
@@ -1399,7 +1490,7 @@ function FilterDialog({ filter, onPreview, onCancel, onApply }: { filter: Filter
         <button className="suite-ai-link" onClick={onCancel}>
           취소
         </button>
-        <button className="suite-button" onClick={onApply}>
+        <button className="suite-button" onClick={() => onApply(amount)}>
           적용
         </button>
       </div>
