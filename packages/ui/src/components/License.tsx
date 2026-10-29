@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { LicenseStatus } from "@suite/shell/bridge";
-import { PRO_URL, SUITE_NAME } from "../brand";
+import { PRO_PRICE, PRO_URL, SUITE_NAME } from "../brand";
 
 /**
  * 바코 스튜디오 Pro: 키 하나로 모든 앱의 전문가 기능을 연다.
@@ -139,6 +139,7 @@ function LicenseDialog({ feature, onClose }: { feature?: string; onClose: () => 
           <div>
             <h2>{SUITE_NAME} Pro</h2>
             <p>키 하나로 다섯 앱의 전문가 기능이 모두 열려요.</p>
+            <p className="suite-license-price">{PRO_PRICE} · 자동 결제 없음</p>
           </div>
         </div>
 
@@ -219,7 +220,7 @@ function LicenseDialog({ feature, onClose }: { feature?: string; onClose: () => 
             {lic.pro ? "닫기" : "나중에"}
           </button>
         </div>
-        <p className="suite-license-note">키는 인터넷 없이 이 컴퓨터에서 확인해요. 매달 디스코드 DM 으로 새 키를 보내 드려요.</p>
+        <p className="suite-license-note">키는 인터넷 없이 이 컴퓨터에서 확인해요. 디스코드 💎┃pro-안내 에서 사고, 키는 봇 DM 으로 받아요. 받고 7일 안에는 전액 환불돼요.</p>
       </div>
     </div>
   );
