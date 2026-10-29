@@ -17,6 +17,7 @@ import {
   useUpdater,
   type Menu,
   type TourStep,
+  requirePro,
 } from "@suite/ui";
 import * as A from "./audio";
 import * as D from "./dsp";
@@ -988,7 +989,7 @@ export function App() {
         { label: "녹음… (입력 장치, 미터, 펀치 인)", shortcut: "R", onSelect: record },
         { label: "저장 (WAV)", shortcut: "Ctrl+S", onSelect: () => void exportWav(exportOpts, false) },
         { label: "내보내기 설정…", shortcut: "Ctrl+Shift+S", onSelect: () => setDialog({ kind: "export" }) },
-        { label: "일괄 처리 (여러 파일 한 번에)…", onSelect: () => (stop(), setDialog({ kind: "batch" })) },
+        { label: "일괄 처리 (여러 파일 한 번에)…", onSelect: () => requirePro("일괄 처리") && (stop(), setDialog({ kind: "batch" })) },
       ],
     },
     {

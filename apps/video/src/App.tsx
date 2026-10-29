@@ -17,6 +17,8 @@ import {
   useUpdater,
   type Menu,
   type TourStep,
+  requirePro,
+  useLicense,
 } from "@suite/ui";
 import { AI_SYSTEM, AI_TOOL, aiContext, applyAICaptions } from "./ai";
 import { Scopes } from "./Scopes";
@@ -552,6 +554,7 @@ export function App() {
 
   /** 모션 트래킹: 고른 클립이 그 아래 영상 속 물체를 따라가게 위치 키프레임을 만든다 */
   const runTracking = async (boxFrac: number) => {
+    if (!requirePro("모션 트래킹")) return;
     const c = focus;
     const e = engine.current;
     if (!c || !e || !isVisual(c) || c.kind === "adjust") return notify("따라 움직일 글자, 사진, 영상 클립을 하나 골라 주세요.");
@@ -1233,7 +1236,8 @@ function ExportDialog({
     ],
     [],
   );
-  const [format, setFormat] = useState(formats[0]?.mimeType ?? "");
+  const { pro } = useLicense();
+  const [format, setFormat] = useState((pro ? formats[0] : formats.find((f) => !f.mimeType.startsWith("exact:")))?.mimeType ?? "");
   const [quality, setQuality] = useState<"high" | "medium" | "small">("high");
   const [scale, setScale] = useState(1);
   const [range, setRange] = useState<"all" | "inout">(project.inPoint !== null || project.outPoint !== null ? "inout" : "all");
@@ -1255,10 +1259,11 @@ function ExportDialog({
         </label>
         <label className="form-row">
           <span>형식</span>
-          <select value={format} onChange={(e) => setFormat(e.target.value)}>
+          <select value={format} onChange={(e) => (!e.target.value.startsWith("exact:") || requirePro("정확하고 빠른 내보내기")) && setFormat(e.target.value)}>
             {formats.map((f) => (
               <option key={f.mimeType} value={f.mimeType}>
                 {f.label}
+                {!pro && f.mimeType.startsWith("exact:") ? " 💎 Pro" : ""}
               </option>
             ))}
           </select>
@@ -1304,6 +1309,7 @@ function ExportDialog({
             className="mini go"
             disabled={!format || to - from < 0.1 || !fileName.trim()}
             onClick={() =>
+              (!format.startsWith("exact:") || requirePro("정확하고 빠른 내보내기")) &&
               onStart(
                 format.startsWith("exact:")
                   ? { mimeType: format, exact: format.slice(6) as "mp4" | "webm", from, to, videoBitsPerSecond: bits, scale }

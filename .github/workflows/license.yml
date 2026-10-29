@@ -1,0 +1,35 @@
+name: 라이선스 키 보내기
+
+# Actions 탭 → ‘라이선스 키 보내기’ → Run workflow. 봇이 그 사람에게 Pro 키를 디스코드 DM 으로 보내고
+# 💎 구독자 역할을 붙인다. 저장소가 공개라 이 기록도 공개된다. 키는 기록에 찍지 않는다.
+on:
+  workflow_dispatch:
+    inputs:
+      discord_user_id:
+        description: "받는 사람의 디스코드 사용자 ID (숫자). 개발자 모드 → 사람 오른쪽 클릭 → 사용자 ID 복사"
+        required: true
+      days:
+        description: "기간 (일). 한 달 구독은 31"
+        required: true
+        default: "31"
+      start:
+        description: "시작 날짜 YYYY-MM-DD (비우면 오늘). 갱신이면 지난 키 끝 다음 날"
+        required: false
+        default: ""
+
+jobs:
+  issue:
+    name: 키 만들고 DM 보내기
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/license/issue.mjs
+        env:
+          LICENSE_PRIVATE_KEY: ${{ secrets.LICENSE_PRIVATE_KEY }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_USER_ID: ${{ inputs.discord_user_id }}
+          DAYS: ${{ inputs.days }}
+          START: ${{ inputs.start }}

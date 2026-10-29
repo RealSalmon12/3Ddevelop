@@ -3,6 +3,7 @@ import { rmSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { aiStatus, askAI, setApiKey } from "./ai";
+import { activateLicense, licenseStatus, removeLicense } from "./license";
 import { checkForUpdate, installUpdate, type UpdateSource } from "./updater";
 import {
   IPC,
@@ -176,6 +177,9 @@ export function startSuiteApp(options: SuiteAppOptions) {
     if (text === null) await rm(autosavePath(), { force: true });
     else await writeFile(autosavePath(), JSON.stringify({ time: Date.now(), text }));
   });
+  ipcMain.handle(IPC.licenseStatus, () => licenseStatus());
+  ipcMain.handle(IPC.licenseActivate, (_event, key: string) => activateLicense(String(key ?? "")));
+  ipcMain.handle(IPC.licenseRemove, () => removeLicense());
   ipcMain.handle(IPC.updateCheck, () =>
     options.updates ? checkForUpdate(options.updates) : { ok: true, current: 0, update: null, dev: true },
   );

@@ -16,6 +16,7 @@ import {
   useUpdater,
   type Menu,
   type TourStep,
+  requirePro,
 } from "@suite/ui";
 import { PixelCanvas, type CanvasController } from "./canvas/PixelCanvas";
 import { HINTS, isTyping, TOOL_KEYS, TOOLS, type Symmetry, type ToolId } from "./canvas/tools";
@@ -309,7 +310,7 @@ export function App() {
       label: "스프라이트",
       items: [
         { label: "크기 바꾸기 (캔버스 / 그림)…", onSelect: () => setDialog("size") },
-        { label: "타일맵 편집기 (게임 지도 만들기)…", onSelect: () => setDialog("tilemap") },
+        { label: "타일맵 편집기 (게임 지도 만들기)…", onSelect: () => requirePro("타일맵 편집기") && setDialog("tilemap") },
         { label: "아무 각도로 돌리기 (RotSprite)…", shortcut: "Ctrl+Shift+R", onSelect: () => (doc.activeLayer.locked ? notify("잠긴 레이어예요.") : setDialog("rotate")) },
         { label: "오른쪽으로 90도 돌리기", onSelect: () => doc.transformAll((r) => rotateRaster(r, true), doc.height, doc.width) },
         { label: "왼쪽으로 90도 돌리기", onSelect: () => doc.transformAll((r) => rotateRaster(r, false), doc.height, doc.width) },
