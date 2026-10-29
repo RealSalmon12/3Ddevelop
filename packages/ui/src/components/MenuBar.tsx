@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { SUITE_NAME } from "../brand";
+import { LicenseBadge } from "./License";
 
 export interface MenuItem {
   label: string;
@@ -76,6 +77,7 @@ export function MenuBar({ appName, menus, actions }: MenuBarProps) {
         </div>
       ))}
       <div className="suite-menubar-spacer" />
+      <LicenseBadge />
       {actions}
     </div>
   );

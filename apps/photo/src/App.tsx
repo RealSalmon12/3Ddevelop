@@ -16,6 +16,8 @@ import {
   useUpdater,
   type Menu,
   type TourStep,
+  isPro,
+  requirePro,
 } from "@suite/ui";
 import { AI_SYSTEM, AI_TOOL, aiContext, aiImages, applyAIEdit, type AIEdit } from "./ai";
 import { DEFAULT_OPTIONS, PhotoCanvas, photoView, type CropRect, type ToolId, type ToolOptions } from "./Canvas";
@@ -159,6 +161,11 @@ export function App() {
   /* ───── 액션 (기록과 실행) ───── */
   const [photoActions, setPhotoActions] = useState<PhotoAction[]>(loadActions);
   const [actionsOpen, setActionsOpen] = useState(false);
+  /** 액션 패널은 Pro (기간이 끝났으면 닫기만 한다) */
+  const toggleActions = () => {
+    if (!isPro()) return void (setActionsOpen(false), requirePro("액션 (작업 녹화와 다시 하기)"));
+    setActionsOpen((v) => !v);
+  };
   const [actionId, setActionId] = useState<string | null>(() => photoActions[0]?.id ?? null);
   const [recording, setRecording] = useState<string | null>(null);
   const recordingRef = useRef<string | null>(null);
@@ -635,7 +642,7 @@ export function App() {
       }
       if (e.key === "F9" && e.altKey) {
         e.preventDefault();
-        return setActionsOpen((v) => !v);
+        return toggleActions();
       }
       if (e.key === "F5" && e.shiftKey) {
         e.preventDefault();
@@ -768,7 +775,7 @@ export function App() {
         { label: "내보내기 (PNG, JPG, WebP)…", shortcut: "Ctrl+Shift+Alt+W", onSelect: () => setDialog({ kind: "export" }) },
         { label: "PNG 로 빠르게 내보내기", onSelect: () => void exportImage("png", 100, 1) },
         { label: "포토샵 PSD 로 내보내기 (레이어 유지)…", onSelect: () => void exportPsd() },
-        { label: "자동화: 일괄 처리 (여러 사진에 액션)…", onSelect: () => setDialog({ kind: "batch" }) },
+        { label: "자동화: 일괄 처리 (여러 사진에 액션)…", onSelect: () => requirePro("일괄 처리") && setDialog({ kind: "batch" }) },
       ],
     },
     {
@@ -849,7 +856,7 @@ export function App() {
     {
       label: "보기",
       items: [
-        { label: recording ? "액션 기록 멈추기" : "액션 패널", shortcut: "Alt+F9", onSelect: () => (recording ? toggleRecord(null) : setActionsOpen((v) => !v)) },
+        { label: recording ? "액션 기록 멈추기" : "액션 패널", shortcut: "Alt+F9", onSelect: () => (recording ? toggleRecord(null) : toggleActions()) },
         { label: "화면에 맞추기", shortcut: "Ctrl+0", onSelect: () => photoView("fit") },
         { label: "100% (실제 픽셀)", shortcut: "Ctrl+1", onSelect: () => photoView("actual") },
         { label: "확대", shortcut: "Ctrl++", onSelect: () => photoView("in") },
@@ -1237,7 +1244,7 @@ export function App() {
           recording={recording}
           onRecord={toggleRecord}
           onPlay={(a) => void playOn(a)}
-          onBatch={() => setDialog({ kind: "batch" })}
+          onBatch={() => requirePro("일괄 처리") && setDialog({ kind: "batch" })}
           onClose={() => setActionsOpen(false)}
           notify={notify}
         />

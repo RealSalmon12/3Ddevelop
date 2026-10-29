@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { requirePro } from "@suite/ui";
 import { GraphEditor } from "./GraphEditor";
 import {
   BLEND_MODES,
@@ -98,7 +99,7 @@ export function EffectControls({ clip, time, preview, commit, set, onSeek, luts,
               className={graph === name ? "on" : ""}
               disabled={keys.length < 2}
               title={keys.length < 2 ? "키프레임이 2개 이상이면 그래프로 속도를 다듬을 수 있어요" : "그래프 에디터: 키 사이 속도 곡선 다듬기"}
-              onClick={() => setGraph(graph === name ? null : name)}
+              onClick={() => (graph === name ? setGraph(null) : requirePro("그래프 에디터") && setGraph(name))}
             >
               📈
             </button>

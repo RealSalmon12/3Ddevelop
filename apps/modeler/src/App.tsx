@@ -21,6 +21,7 @@ import {
   type Tool,
   type ToolAction,
   type TourStep,
+  requirePro,
 } from "@suite/ui";
 import type { SelectMode } from "./mesh/selection";
 import { PropertiesPanel } from "./panels/PropertiesPanel";
@@ -215,6 +216,7 @@ export function App() {
   }, [viewport]);
   useEffect(() => model.setMirrorPose(rigId, mirrorPose), [model, rigId, mirrorPose]);
   const enterRig = () => {
+    if (!requirePro("뼈대 모드 (리깅)")) return false;
     if (!selected || selected.kind === "effect") return void notify("뼈대를 넣을 도형을 먼저 골라 주세요.");
     model.exitEdit();
     setSculptOn(false);
@@ -520,7 +522,7 @@ export function App() {
           },
         },
         { label: rigId ? "뼈대 모드 끝내기" : "뼈대 모드 (리깅, 포즈)", onSelect: () => (rigId ? setRigOn(false) : enterRig()) },
-        { label: "사람 뼈대 넣기 (자동 가중치)", disabled: !selected || selected.kind === "effect", onSelect: () => { enterRig(); const b = model.addRig(selected?.id ?? null, "human"); if (b) setBone({ id: b[0].id, end: "tail" }); } },
+        { label: "사람 뼈대 넣기 (자동 가중치)", disabled: !selected || selected.kind === "effect", onSelect: () => { if (enterRig() === false) return; const b = model.addRig(selected?.id ?? null, "human"); if (b) setBone({ id: b[0].id, end: "tail" }); } },
         { label: "포즈 초기화", shortcut: "Alt+R", disabled: !rigId, onSelect: () => model.resetPose(rigId) },
         { label: "촘촘하게 (면 4배, 조각용)", disabled: !selected || selected.kind === "effect", onSelect: densify },
         ...SCULPT_BRUSHES.map((b) => ({ label: `조각 붓: ${b.label}`, shortcut: b.key, disabled: !sculptId, onSelect: () => setSculpt((s) => ({ ...s, brush: b.id })) })),

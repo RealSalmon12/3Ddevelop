@@ -26,6 +26,11 @@ export function exposeSuiteBridge(appId: string) {
       read: (path: string) => ipcRenderer.invoke(IPC.fileRead, path),
       pathOf: (file: File) => webUtils.getPathForFile(file),
     },
+    license: {
+      status: () => ipcRenderer.invoke(IPC.licenseStatus),
+      activate: (key: string) => ipcRenderer.invoke(IPC.licenseActivate, key),
+      remove: () => ipcRenderer.invoke(IPC.licenseRemove),
+    },
     updates: {
       check: () => ipcRenderer.invoke(IPC.updateCheck),
       install: async (onProgress: (ratio: number) => void) => {

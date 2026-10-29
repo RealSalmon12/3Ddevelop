@@ -74,6 +74,24 @@ export type UpdateCheckResult =
 
 export type UpdateInstallResult = { ok: true } | { ok: false; message: string };
 
+/** 라이선스 상태. plan 이 "pro" 일 때만 전문가 기능이 열린다. */
+export interface LicenseStatus {
+  plan: "free" | "pro";
+  /** 키 번호, 받는 사람, 기간 (키가 있을 때) */
+  id?: string;
+  to?: string;
+  from?: string;
+  until?: string;
+  /** 끝 날짜까지 남은 날 (지나면 0 이하) */
+  daysLeft?: number;
+  /** 기간이 끝나서 무료판으로 돌아감 */
+  expired?: boolean;
+  /** 기간은 끝났지만 며칠 더 쓸 수 있는 중 */
+  grace?: boolean;
+  /** 키를 넣다가 생긴 문제 (사람이 읽는 문장) */
+  error?: string;
+}
+
 export interface SuiteBridge {
   appId: string;
   platform: string;
@@ -108,6 +126,12 @@ export interface SuiteBridge {
     /** 끌어다 놓은 파일의 실제 경로 */
     pathOf(file: File): string;
   };
+  /** 바코 스튜디오 Pro 라이선스 (모든 앱이 같은 키를 쓴다) */
+  license: {
+    status(): Promise<LicenseStatus>;
+    activate(key: string): Promise<LicenseStatus>;
+    remove(): Promise<LicenseStatus>;
+  };
   updates: {
     check(): Promise<UpdateCheckResult>;
     /** 받는 동안 0~1 진행률을 알려 주고, 성공하면 앱이 닫혔다가 새 버전으로 다시 열린다. */
@@ -127,6 +151,9 @@ export const IPC = {
   setDirty: "suite:set-dirty",
   autosaveRead: "suite:autosave-read",
   autosaveWrite: "suite:autosave-write",
+  licenseStatus: "suite:license-status",
+  licenseActivate: "suite:license-activate",
+  licenseRemove: "suite:license-remove",
   updateCheck: "suite:update-check",
   updateInstall: "suite:update-install",
   updateProgress: "suite:update-progress",

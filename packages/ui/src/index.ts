@@ -1,4 +1,5 @@
-export { COMMUNITY_URL, SUITE_NAME } from "./brand";
+export { COMMUNITY_URL, PRO_URL, SUITE_NAME } from "./brand";
+export { isPro, openLicense, refreshLicense, requirePro, useLicense } from "./components/License";
 export { AppFrame } from "./components/AppFrame";
 export { MenuBar, type Menu, type MenuItem } from "./components/MenuBar";
 export { CommandSearch, menuCommands, type Command } from "./components/CommandSearch";
