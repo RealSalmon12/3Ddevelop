@@ -1,0 +1,23 @@
+name: 디스코드 매일 할 일
+
+# 매일 아침 9시(한국 시간): Pro 끝나기 3일 전인 사람에게 DM, 유예까지 끝난 사람은 💎 구독자 역할 빼기.
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  remind:
+    name: Pro 만료 알림
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/discord
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/discord/ops.mjs remind
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}

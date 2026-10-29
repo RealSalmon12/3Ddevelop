@@ -14,6 +14,7 @@
 import { createPrivateKey, createPublicKey, randomBytes, sign, verify } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { api, guildId, token } from "../discord/api.mjs";
+import { logOps } from "../discord/ops.mjs";
 
 // setup.mjs 가 만든 💎 구독자 역할. 이름으로도 찾는다 (역할을 다시 만들었을 때를 위해).
 const SUBSCRIBER_ROLE_ID = "1565153015839723670";
@@ -93,6 +94,11 @@ async function sendByDiscord(pem) {
     throw e;
   }
   console.log(`✅ ${to} 님에게 키를 DM 으로 보냈어요. 키 번호 ${payload.id}, 컴퓨터 ${payload.pc}, 기간 ${payload.from} ~ ${payload.until}`);
+
+  // 운영진 채널에 남겨 두면 만료 3일 전 알림과 주간 보고가 이 기록을 쓴다 (tools/discord/ops.mjs)
+  await logOps(`🔑 <@${userId}> (${to}) 님에게 Pro 키를 보냈어요. 키 번호 ${payload.id} · 컴퓨터 ${payload.pc} · ${payload.from} ~ ${payload.until}`, `#pro ${userId} ${payload.until} ${payload.id}`).catch(
+    (e) => console.log(`::warning::운영 기록은 못 남겼어요: ${e.message}`),
+  );
 
   // 💎 구독자 역할 붙이기 (안 돼도 키는 이미 보냈으니 경고만)
   try {

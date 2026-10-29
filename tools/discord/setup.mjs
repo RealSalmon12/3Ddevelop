@@ -196,6 +196,11 @@ const LAYOUT = [
       { name: "🔊 수다방", type: VOICE },
     ],
   },
+  {
+    // 🦭 운영진만 보인다. 키 보낸 기록, 만료 알림, 주간 보고가 자동으로 쌓인다 (ops.mjs 가 읽고 쓴다).
+    category: "🔒 운영진",
+    channels: [{ key: "ops", name: "🧾┃운영-기록", type: TEXT, staffOnly: true, topic: "키 보낸 기록, 만료 알림, 주간 보고가 자동으로 올라와요. 운영진만 보여요." }],
+  },
 ];
 
 // 예전에 만들었다가 없애기로 한 채널
@@ -472,8 +477,21 @@ async function main() {
     { id: roleIds.staff, type: 0, allow: bits(P.viewChannel, P.readHistory, P.sendMessages), deny: "0" },
     { id: me.id, type: 1, allow: bits(P.viewChannel, P.sendMessages, P.embedLinks), deny: "0" },
   ];
+  // 🦭 운영진만 보이는 채널
+  const staffOnlyFor = () => [
+    { id: guildId, type: 0, allow: "0", deny: bits(P.viewChannel) },
+    { id: roleIds.member, type: 0, allow: "0", deny: bits(P.viewChannel) },
+    { id: roleIds.staff, type: 0, allow: bits(P.viewChannel, P.readHistory, P.sendMessages), deny: "0" },
+    { id: me.id, type: 1, allow: bits(P.viewChannel, P.readHistory, P.sendMessages, P.embedLinks), deny: "0" },
+  ];
   const overwritesFor = (spec) =>
-    spec.readOnly ? { permission_overwrites: readOnlyFor(spec) } : spec.subscribersOnly ? { permission_overwrites: subscribersOnlyFor() } : {};
+    spec.readOnly
+      ? { permission_overwrites: readOnlyFor(spec) }
+      : spec.subscribersOnly
+        ? { permission_overwrites: subscribersOnlyFor() }
+        : spec.staffOnly
+          ? { permission_overwrites: staffOnlyFor() }
+          : {};
 
   let channels = await api("GET", `/guilds/${guildId}/channels`);
   const ids = {};
