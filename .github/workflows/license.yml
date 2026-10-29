@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       discord_user_id:
-        description: "받는 사람의 디스코드 사용자 ID (숫자). 개발자 모드 → 사람 오른쪽 클릭 → 사용자 ID 복사"
+        description: "받는 사람의 디스코드 사용자 ID (숫자). 개발자 모드 → 사람 오른쪽 클릭 → 사용자 ID 복사. check 라고 쓰면 비밀 값만 확인"
         required: true
       days:
         description: "기간 (일). 한 달 구독은 31"

@@ -11,7 +11,7 @@
 // 2) 내 컴퓨터에서 (DM 이 막힌 사람에게 직접 줄 때)
 //    node tools/license/issue.mjs --to "이름" --days 31 --key-file 비밀열쇠.txt
 //    키를 화면에 찍는다. 이 키를 공개된 곳에 붙여 넣지 말 것.
-import { createPrivateKey, randomBytes, sign } from "node:crypto";
+import { createPrivateKey, createPublicKey, randomBytes, sign, verify } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { api, guildId, token } from "../discord/api.mjs";
 
@@ -39,8 +39,22 @@ function arg(name) {
   return i > 0 ? process.argv[i + 1] : undefined;
 }
 
+// 앱(packages/shell/src/license.ts)에 들어 있는 공개 열쇠와 같아야 한다
+const APP_PUBLIC_KEY = "MCowBQYDK2VwAyEAwEW+TFPUYxhgTwXoPsTtT4YjSwDhINEeT356JK50wrE=";
+
+/** 비밀 값이 앱의 공개 열쇠와 짝이 맞는지만 본다 (아무에게도 보내지 않음) */
+function checkPair(pem) {
+  const { key } = issueKey(pem, { to: "check", days: 1 });
+  const [, body, sig] = /^BACO-(.+)\.(.+)$/.exec(key);
+  const pub = createPublicKey({ key: Buffer.from(APP_PUBLIC_KEY, "base64"), format: "der", type: "spki" });
+  const ok = verify(null, Buffer.from(body), pub, Buffer.from(sig.replace(/-/g, "+").replace(/_/g, "/"), "base64"));
+  if (!ok) throw new Error("LICENSE_PRIVATE_KEY 가 앱의 공개 열쇠와 짝이 맞지 않아요. 비밀 값을 파일 내용 그대로 다시 넣어 주세요.");
+  console.log("✅ LICENSE_PRIVATE_KEY 가 앱과 짝이 맞아요. 이 열쇠로 만든 키는 앱에서 열려요.");
+}
+
 async function sendByDiscord(pem) {
   const userId = (process.env.DISCORD_USER_ID ?? "").trim();
+  if (userId === "check") return checkPair(pem);
   if (!/^\d{15,22}$/.test(userId)) throw new Error("디스코드 사용자 ID(숫자)를 넣어 주세요. 디스코드 설정 → 고급 → 개발자 모드를 켜고 사람을 오른쪽 클릭 → ‘사용자 ID 복사’.");
   if (!token) throw new Error("DISCORD_BOT_TOKEN 비밀 값이 없어요.");
   const days = Number(process.env.DAYS || 31);

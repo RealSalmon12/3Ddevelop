@@ -550,6 +550,7 @@ button { font: inherit; color: inherit; }
 .suite-license-head { display: flex; gap: 14px; align-items: center; }
 .suite-license-head h2 { margin: 0; font-size: 19px; letter-spacing: -0.02em; }
 .suite-license-head p { margin: 2px 0 0; font-size: 13px; color: var(--text-dim); }
+.suite-license-head .suite-license-price { color: #8fd8ff; font-weight: 600; }
 .suite-license-gem {
   display: grid;
   place-items: center;

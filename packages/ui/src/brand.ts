@@ -4,5 +4,6 @@ export const SUITE_NAME = "바코 스튜디오";
 // 사용자 커뮤니티 (디스코드) 초대 링크. tools/discord/setup.mjs 가 만든다.
 export const COMMUNITY_URL = "https://discord.gg/GuHgEcdJUV";
 
-// Pro 구독하러 가는 곳. 가격·구매 방법이 정해지면 바꾼다 (지금은 디스코드 서버의 💎┃pro-안내).
+// Pro 구독하러 가는 곳 (디스코드 서버의 💎┃pro-안내) 과 가격. tools/discord/setup.mjs 의 PRO_PURCHASE 와 맞춘다.
 export const PRO_URL = COMMUNITY_URL;
+export const PRO_PRICE = "한 달 2,900원 · 1년 29,000원";
