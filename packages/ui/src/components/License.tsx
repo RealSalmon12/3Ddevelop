@@ -98,6 +98,7 @@ function LicenseDialog({ feature, onClose }: { feature?: string; onClose: () => 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [copied, setCopied] = useState(false);
   const bridge = window.suite?.license;
 
   useEffect(() => {
@@ -175,6 +176,24 @@ function LicenseDialog({ feature, onClose }: { feature?: string; onClose: () => 
           ))}
         </ul>
 
+        {lic.pc && (
+          <div className="suite-license-pc">
+            <span>
+              내 컴퓨터 코드 <b>{lic.pc}</b>
+            </span>
+            <button
+              className="suite-license-link"
+              onClick={() => {
+                void navigator.clipboard.writeText(lic.pc!);
+                setCopied(true);
+              }}
+            >
+              {copied ? "복사했어요" : "복사"}
+            </button>
+            <small>살 때 이 코드를 알려 주세요. 키는 이 컴퓨터 한 대에서만 열려요.</small>
+          </div>
+        )}
+
         {bridge ? (
           <div className="suite-license-key">
             <label htmlFor="suite-license-input">{lic.pro ? "새 키로 바꾸기 (다음 달 키)" : "라이선스 키"}</label>
@@ -220,7 +239,7 @@ function LicenseDialog({ feature, onClose }: { feature?: string; onClose: () => 
             {lic.pro ? "닫기" : "나중에"}
           </button>
         </div>
-        <p className="suite-license-note">키는 인터넷 없이 이 컴퓨터에서 확인해요. 디스코드 💎┃pro-안내 에서 사고, 키는 봇 DM 으로 받아요. 받고 7일 안에는 전액 환불돼요.</p>
+        <p className="suite-license-note">키는 인터넷 없이 이 컴퓨터에서 확인해요. 디스코드 💎┃pro-안내 에서 사고, 키는 봇 DM 으로 받아요. 환불은 Pro 기능이 이 컴퓨터에서 작동하지 않을 때만 돼요.</p>
       </div>
     </div>
   );

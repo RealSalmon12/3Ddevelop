@@ -8,6 +8,10 @@ on:
       discord_user_id:
         description: "받는 사람의 디스코드 사용자 ID (숫자). 개발자 모드 → 사람 오른쪽 클릭 → 사용자 ID 복사. check 라고 쓰면 비밀 값만 확인"
         required: true
+      pc:
+        description: "산 사람의 컴퓨터 코드 (앱 💎 창의 ‘내 컴퓨터 코드’, 예: 7K2M-QX9D-4F). 키는 이 컴퓨터에서만 열린다. check 일 때는 아무거나"
+        required: true
+        default: ""
       days:
         description: "기간 (일). 한 달 구독은 31"
         required: true
@@ -31,5 +35,6 @@ jobs:
           LICENSE_PRIVATE_KEY: ${{ secrets.LICENSE_PRIVATE_KEY }}
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_USER_ID: ${{ inputs.discord_user_id }}
+          PC: ${{ inputs.pc }}
           DAYS: ${{ inputs.days }}
           START: ${{ inputs.start }}

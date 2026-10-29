@@ -88,6 +88,8 @@ export interface LicenseStatus {
   expired?: boolean;
   /** 기간은 끝났지만 며칠 더 쓸 수 있는 중 */
   grace?: boolean;
+  /** 이 컴퓨터의 코드. 살 때 알려 주면 이 컴퓨터에서만 열리는 키가 온다 */
+  pc?: string;
   /** 키를 넣다가 생긴 문제 (사람이 읽는 문장) */
   error?: string;
 }
