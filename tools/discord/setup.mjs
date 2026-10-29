@@ -484,6 +484,13 @@ async function main() {
       let channel = channels.find((c) => sameName(c.name, spec.name) && c.type !== CATEGORY);
       if (channel) {
         const patch = { parent_id: category.id, ...overwritesFor(spec) };
+        // 포럼 태그를 맞춘다. 이름이 같은 태그는 ID 를 그대로 둬서 이미 달린 글의 태그가 안 빠지게 한다.
+        if (spec.tags && channel.type === FORUM) {
+          patch.available_tags = spec.tags.map((t) => {
+            const old = channel.available_tags?.find((o) => o.name === t.name);
+            return old ? { ...t, id: old.id } : t;
+          });
+        }
         channel = await api("PATCH", `/channels/${channel.id}`, patch, "바코 스튜디오 세팅");
         skip(spec.name);
       } else {
