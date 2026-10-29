@@ -9,7 +9,7 @@
 //    저장소가 공개라 실행 기록도 공개된다. 그래서 키는 절대 기록에 찍지 않고 키 번호만 남긴다.
 //
 // 2) 내 컴퓨터에서 (DM 이 막힌 사람에게 직접 줄 때)
-//    node tools/license/issue.mjs --to "이름" --days 31 --key-file 비밀열쇠.txt
+//    node tools/license/issue.mjs --to "이름" --days 31 --pc 7K2M-QX9D-4F --key-file 비밀열쇠.txt
 //    키를 화면에 찍는다. 이 키를 공개된 곳에 붙여 넣지 말 것.
 import { createPrivateKey, createPublicKey, randomBytes, sign, verify } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -22,13 +22,20 @@ const SUBSCRIBER_ROLE_NAME = "💎 구독자";
 const b64url = (buf) => Buffer.from(buf).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const day = (d) => d.toISOString().slice(0, 10);
 
-/** 키 하나를 만든다. start 는 YYYY-MM-DD (없으면 오늘, UTC) */
-export function issueKey(privateKeyPem, { to, days = 31, start }) {
+/** 앱 💎 창의 ‘내 컴퓨터 코드’ (예: 7K2M-QX9D-4F). 띄어쓰기, 소문자, 하이픈 없이 써도 맞춘다 */
+export function normalizePc(raw) {
+  const s = String(raw ?? "").toUpperCase().replace(/[^0-9A-Z]/g, "").replace(/O/g, "0").replace(/[IL]/g, "1");
+  if (!/^[0-9A-HJKMNP-TV-Z]{10}$/.test(s)) throw new Error(`컴퓨터 코드가 이상해요: ${raw}. 앱 💎 창의 ‘내 컴퓨터 코드’(예: 7K2M-QX9D-4F)를 그대로 넣어 주세요.`);
+  return `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8)}`;
+}
+
+/** 키 하나를 만든다. start 는 YYYY-MM-DD (없으면 오늘, UTC). pc 가 있으면 그 컴퓨터에서만 열린다 */
+export function issueKey(privateKeyPem, { to, days = 31, start, pc }) {
   const from = start ? new Date(`${start}T00:00:00Z`) : new Date(`${day(new Date())}T00:00:00Z`);
   if (Number.isNaN(from.getTime())) throw new Error(`시작 날짜를 읽을 수 없어요: ${start}`);
   if (!(days >= 1 && days <= 400)) throw new Error(`기간은 1~400일이어야 해요: ${days}`);
   const until = new Date(from.getTime() + (days - 1) * 86400000);
-  const payload = { v: 1, id: randomBytes(4).toString("hex").toUpperCase(), to: String(to).slice(0, 64), plan: "pro", from: day(from), until: day(until) };
+  const payload = { v: 1, id: randomBytes(4).toString("hex").toUpperCase(), to: String(to).slice(0, 64), plan: "pro", ...(pc ? { pc: normalizePc(pc) } : {}), from: day(from), until: day(until) };
   const body = b64url(JSON.stringify(payload));
   const sig = sign(null, Buffer.from(body), createPrivateKey(privateKeyPem));
   return { key: `BACO-${body}.${b64url(sig)}`, payload };
@@ -59,10 +66,12 @@ async function sendByDiscord(pem) {
   if (!token) throw new Error("DISCORD_BOT_TOKEN 비밀 값이 없어요.");
   const days = Number(process.env.DAYS || 31);
   const start = (process.env.START ?? "").trim() || undefined;
+  // 판매용 키는 늘 한 컴퓨터에 묶는다
+  const pc = normalizePc(process.env.PC);
 
   const user = await api("GET", `/users/${userId}`);
   const to = user.global_name || user.username;
-  const { key, payload } = issueKey(pem, { to, days, start });
+  const { key, payload } = issueKey(pem, { to, days, start, pc });
   // 혹시 다른 단계가 찍더라도 가려지게
   if (process.env.GITHUB_ACTIONS) console.log(`::add-mask::${key}`);
 
@@ -73,6 +82,7 @@ async function sendByDiscord(pem) {
         `💎 **바코 스튜디오 Pro** 라이선스 키예요. 고마워요, ${to} 님!\n\n` +
         "```\n" + key + "\n```\n" +
         `• 기간: **${payload.from} ~ ${payload.until}** (끝나도 3일은 그대로 써요)\n` +
+        `• 컴퓨터: **${payload.pc}** 한 대에서만 열려요. 키를 넣는 창에 이 코드가 보여요\n` +
         "• 아무 바코 스튜디오 앱이나 열고 오른쪽 위 **💎 Pro 알아보기** → 키를 통째로 붙여 넣기 → **키 넣기**\n" +
         "• 키 하나로 모든 앱에서 써요. 인터넷이 없어도 돼요.\n" +
         "• 이 키는 나만 써요. 채팅이나 게시판에 올리지 마세요.\n" +
@@ -82,7 +92,7 @@ async function sendByDiscord(pem) {
     if (e.code === 50007) throw new Error("이 사람에게 DM 을 보낼 수 없어요 (DM 을 막아 두었거나 서버에 없어요). 서버 멤버 DM 허용을 부탁하거나, 내 컴퓨터에서 --key-file 로 만들어 직접 전해 주세요.");
     throw e;
   }
-  console.log(`✅ ${to} 님에게 키를 DM 으로 보냈어요. 키 번호 ${payload.id}, 기간 ${payload.from} ~ ${payload.until}`);
+  console.log(`✅ ${to} 님에게 키를 DM 으로 보냈어요. 키 번호 ${payload.id}, 컴퓨터 ${payload.pc}, 기간 ${payload.from} ~ ${payload.until}`);
 
   // 💎 구독자 역할 붙이기 (안 돼도 키는 이미 보냈으니 경고만)
   try {
@@ -101,8 +111,8 @@ async function main() {
   const pem = (file ? readFileSync(file, "utf8") : process.env.LICENSE_PRIVATE_KEY ?? "").trim();
   if (!pem.includes("PRIVATE KEY")) throw new Error("비밀 열쇠가 없어요. GitHub 비밀 값 LICENSE_PRIVATE_KEY 를 넣거나 --key-file 로 알려 주세요.");
   if (file) {
-    const { key, payload } = issueKey(pem, { to: arg("to") ?? "구독자", days: Number(arg("days") ?? 31), start: arg("start") });
-    console.log(`키 번호 ${payload.id} · ${payload.to} · ${payload.from} ~ ${payload.until}\n\n${key}`);
+    const { key, payload } = issueKey(pem, { to: arg("to") ?? "구독자", days: Number(arg("days") ?? 31), start: arg("start"), pc: arg("pc") });
+    console.log(`키 번호 ${payload.id} · ${payload.to} · ${payload.pc ?? "아무 컴퓨터"} · ${payload.from} ~ ${payload.until}\n\n${key}`);
     return;
   }
   await sendByDiscord(pem);

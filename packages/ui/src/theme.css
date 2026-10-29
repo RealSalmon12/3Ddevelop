@@ -570,6 +570,9 @@ button { font: inherit; color: inherit; }
 .suite-license-features li { display: grid; grid-template-columns: 84px 1fr; gap: 10px; }
 .suite-license-features b { color: #8fd8ff; font-weight: 600; }
 .suite-license-features span { color: var(--text-dim); }
+.suite-license-pc { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 16px; padding: 10px 12px; border-radius: var(--radius); background: var(--bg-raised); font-size: 13px; }
+.suite-license-pc b { font: 600 14px ui-monospace, Consolas, monospace; letter-spacing: 0.06em; color: var(--text); }
+.suite-license-pc small { flex-basis: 100%; color: var(--text-dim); font-size: 11px; }
 .suite-license-key { display: grid; gap: 6px; margin-top: 16px; font-size: 13px; }
 .suite-license-key textarea {
   resize: none;
