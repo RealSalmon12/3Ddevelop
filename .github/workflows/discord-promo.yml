@@ -1,0 +1,41 @@
+name: 디스코드 공지 올리기
+
+# Actions 탭 → ‘디스코드 공지 올리기’ → Run workflow. 새 영상이나 소식을 📣┃공지 에 올린다.
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: "제목 (예: 🎬 새 쇼츠: 버튼 하나로 게임 효과음)"
+        required: true
+      url:
+        description: "링크 (유튜브 영상 주소 등, https:// 로 시작). 없으면 비워 두기"
+        required: false
+        default: ""
+      text:
+        description: "본문 (짧게 한두 줄). 없으면 비워 두기"
+        required: false
+        default: ""
+      ping:
+        description: "@everyone 으로 모두에게 알림 보내기"
+        type: boolean
+        default: false
+
+jobs:
+  promo:
+    name: 📣 공지 올리기
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/discord
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/discord/ops.mjs promo
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          PROMO_TITLE: ${{ inputs.title }}
+          PROMO_URL: ${{ inputs.url }}
+          PROMO_TEXT: ${{ inputs.text }}
+          PROMO_PING: ${{ inputs.ping }}

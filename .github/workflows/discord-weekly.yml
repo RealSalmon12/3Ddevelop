@@ -1,0 +1,24 @@
+name: 디스코드 주간 챌린지·보고
+
+# 매주 월요일 아침 9시(한국 시간): 🖼️┃작품-자랑 에 이번 주 챌린지, 🧾┃운영-기록 에 인원·다운로드 보고.
+on:
+  schedule:
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+
+jobs:
+  weekly:
+    name: 챌린지와 주간 보고
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/discord
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/discord/ops.mjs weekly
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
