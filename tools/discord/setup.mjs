@@ -77,8 +77,8 @@ const ROLES = [
     permissions: bits(P.viewChannel, P.readHistory),
   },
   {
-    // 💎 Pro 를 산 사람. 앱이 ‘디스코드로 로그인’ 할 때 이 역할이 있는지 보고 Pro 기능을 연다.
-    // 이름을 바꾸면 앱 쪽 확인도 같이 바꿔야 한다. 역할 ID 는 세팅 기록 맨 아래에 나온다.
+    // 💎 Pro 를 산 사람. ‘라이선스 키 보내기’ 워크플로가 키를 DM 으로 보낼 때 같이 붙인다.
+    // 역할 ID 는 세팅 기록 맨 아래에 나온다.
     key: "subscriber",
     name: "💎 구독자",
     color: 0x4fc3ff,
@@ -124,21 +124,21 @@ const LAYOUT = [
   {
     category: "💎 Pro",
     channels: [
-      { key: "pro", name: "💎┃pro-안내", type: TEXT, readOnly: true, topic: "무료와 Pro 의 차이, Pro 를 사는 법, 앱에서 켜는 법" },
+      { key: "pro", name: "💎┃pro-안내", type: TEXT, readOnly: true, topic: "무료와 Pro 의 차이, Pro 를 사는 법, 라이선스 키로 켜는 법" },
       {
         key: "license-help",
         name: "🎫┃라이선스-문의",
         type: FORUM,
-        topic: "구매, 디스코드 로그인, Pro 가 안 켜질 때 여기에 글을 올려 주세요. 결제 영수증이나 카드 번호 같은 개인정보는 올리지 말고 운영진에게 DM 으로 보내 주세요.",
+        topic: "구매, 키가 안 올 때, Pro 가 안 켜질 때 여기에 글을 올려 주세요. 라이선스 키, 결제 영수증, 카드 번호는 절대 올리지 마세요.",
         tags: [
           { name: "구매·결제", emoji_name: "💳" },
-          { name: "로그인이 안 돼요", emoji_name: "🔑" },
+          { name: "키가 안 와요", emoji_name: "🔑" },
           { name: "Pro 가 안 켜져요", emoji_name: "💎" },
           { name: "기타", emoji_name: "💬" },
           { name: "해결됨", emoji_name: "✅" },
         ],
       },
-      { key: "lounge", name: "💎┃구독자-라운지", type: TEXT, subscribersOnly: true, topic: "💎 구독자만 보이는 곳. Pro 템플릿·프리셋 소식과 먼저 써 보기" },
+      { key: "lounge", name: "💎┃구독자-라운지", type: TEXT, subscribersOnly: true, topic: "💎 구독자만 보이는 곳. Pro 프리셋 팩 소식과 먼저 써 보기" },
     ],
   },
   {
@@ -309,7 +309,7 @@ function proMessages(ids) {
               "• 🦪 진주: 액션 기록과 일괄 처리\n" +
               "• 🌊 파도: 일괄 처리 (여러 파일 한 번에, 소리 크기 맞추기)\n" +
               "• ❄️ 눈꽃: 타일맵 편집기 (Tiled 내보내기)\n" +
-              "• Pro 템플릿·프리셋 팩, " + ch(ids, "lounge") + " 입장",
+              "• 앞으로 나올 Pro 프리셋 팩, " + ch(ids, "lounge") + " 입장",
           },
         ],
       },
@@ -317,12 +317,13 @@ function proMessages(ids) {
         title: "🔑 Pro 켜는 법",
         color: COLORS.mint,
         description:
-          "**1.** Pro 를 사면 이 서버에서 **💎 구독자** 역할을 받아요.\n" +
-          "**2.** 앱에서 **디스코드로 로그인** 을 눌러요. 브라우저가 열리면 ‘승인’ 을 눌러 주세요.\n" +
-          "**3.** 앱이 💎 구독자 역할을 확인하면 Pro 기능이 바로 열려요.\n\n" +
-          "• 따로 입력하는 키는 없어요. 디스코드 계정으로만 확인해요.\n" +
-          "• 일주일에 한 번 인터넷으로 다시 확인해요. 역할이 없어지면 Pro 기능이 다시 잠겨요.\n" +
-          "• 이 서버를 나가면 역할도 사라지니 서버에 계속 있어 주세요.",
+          "**1.** Pro 를 사면 봇 **바코** 가 디스코드 DM 으로 **라이선스 키**(`BACO-` 로 시작)를 보내 드려요. 💎 구독자 역할도 같이 생겨요.\n" +
+          "**2.** 아무 바코 스튜디오 앱이나 열고 오른쪽 위 **💎 Pro 알아보기** 를 눌러요.\n" +
+          "**3.** 키를 붙여 넣으면 바로 Pro 가 열려요. 인터넷이 없어도 돼요.\n\n" +
+          "• 키 하나로 **모든 앱** 에서 써요.\n" +
+          "• 구독하면 매달 새 키가 DM 으로 와요. 기간이 끝나도 3일은 그대로 쓸 수 있어요.\n" +
+          "• 기간이 끝나면 무료판으로 돌아가지만, 만든 파일과 작업물은 그대로 열려요.\n" +
+          "• DM 을 받으려면 이 서버 멤버의 DM 을 허용해 두세요 (서버 이름 → 개인정보 보호 설정).",
       },
       {
         title: "💳 사는 법",
@@ -333,7 +334,9 @@ function proMessages(ids) {
         title: "⚠️ 조심하세요",
         color: 0xff6b6b,
         description:
-          "운영진은 **절대 먼저 DM 으로 결제를 요구하지 않아요.** 디스코드 비밀번호, 토큰, 카드 번호를 달라는 사람은 사기예요. 이상한 메시지는 🦭 운영진에게 알려 주세요.",
+          "• **라이선스 키는 나만 써요.** 채팅이나 문의 게시판에 키를 올리지 마세요. 남이 가져다 쓸 수 있어요.\n" +
+          "• 키는 봇 **바코** 의 DM 으로만 와요. 다른 사람이 보낸 ‘키’ 나 링크는 믿지 마세요.\n" +
+          "• 운영진은 **절대 먼저 DM 으로 결제를 요구하지 않아요.** 디스코드 비밀번호, 토큰, 카드 번호를 달라는 사람은 사기예요. 이상한 메시지는 🦭 운영진에게 알려 주세요.",
       },
     ],
   ];
@@ -481,6 +484,13 @@ async function main() {
       let channel = channels.find((c) => sameName(c.name, spec.name) && c.type !== CATEGORY);
       if (channel) {
         const patch = { parent_id: category.id, ...overwritesFor(spec) };
+        // 포럼 태그를 맞춘다. 이름이 같은 태그는 ID 를 그대로 둬서 이미 달린 글의 태그가 안 빠지게 한다.
+        if (spec.tags && channel.type === FORUM) {
+          patch.available_tags = spec.tags.map((t) => {
+            const old = channel.available_tags?.find((o) => o.name === t.name);
+            return old ? { ...t, id: old.id } : t;
+          });
+        }
         channel = await api("PATCH", `/channels/${channel.id}`, patch, "바코 스튜디오 세팅");
         skip(spec.name);
       } else {
