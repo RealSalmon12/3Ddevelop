@@ -1,0 +1,24 @@
+name: 디스코드 예약 공지
+
+# 매일 저녁 7시 15분쯤(한국 시간): tools/discord/promo-schedule.json 에서 오늘 날짜 공지를 📣┃공지 에 올린다.
+# 유튜브 쇼츠가 저녁 7시에 공개되니까 그 뒤에 올린다. 새 예약 공지는 그 파일에 한 줄 더 넣으면 된다.
+on:
+  schedule:
+    - cron: "15 10 * * *"
+  workflow_dispatch:
+
+jobs:
+  scheduled:
+    name: 📣 예약 공지
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/discord
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/discord/ops.mjs scheduled
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
