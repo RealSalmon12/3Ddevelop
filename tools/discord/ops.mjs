@@ -2,12 +2,15 @@
 //   node tools/discord/ops.mjs remind  매일: Pro 끝나기 3일 전 DM, 유예까지 끝나면 💎 구독자 역할 빼기
 //   node tools/discord/ops.mjs weekly  매주 월요일: 🖼️┃작품-자랑 에 이번 주 챌린지, 🧾┃운영-기록 에 주간 보고
 //   node tools/discord/ops.mjs promo   버튼으로: 📣┃공지 에 새 영상·소식 올리기 (PROMO_* 환경 변수)
+//   node tools/discord/ops.mjs scheduled  매일 저녁: promo-schedule.json 에서 오늘 날짜(한국 시간) 공지를 올리기
 //
 // 기록은 운영진만 보이는 🧾┃운영-기록 채널에 봇이 남기는 한 줄 표시로 한다 (저장소가 공개라 여기 두지 않는다).
 //   `#pro <사용자ID> <끝 날짜> <키 번호>`     키를 보냈을 때 (issue.mjs)
 //   `#remind <사용자ID> <끝 날짜>`           만료 알림 DM 을 보냈을 때
 //   `#expired <사용자ID> <끝 날짜>`          유예가 끝나 역할을 뺐을 때
 //   `#stats <JSON>`                          주간 보고 (다음 주에 늘어난 수를 셀 때 쓴다)
+//   `#promo <날짜> <링크>`                   예약 공지를 올렸을 때 (같은 날 두 번 돌아도 한 번만 올린다)
+import { readFileSync } from "node:fs";
 import { api, guildId, sameName, token } from "./api.mjs";
 
 export const OPS_CHANNEL = "🧾┃운영-기록";
@@ -190,15 +193,11 @@ async function weekly() {
   console.log("✅ 주간 보고를 올렸어요.");
 }
 
-async function promo() {
-  const title = (process.env.PROMO_TITLE ?? "").trim();
-  const url = (process.env.PROMO_URL ?? "").trim();
-  const text = (process.env.PROMO_TEXT ?? "").trim();
+async function postNotice({ title, url = "", text = "", everyone = false }) {
   if (!title) throw new Error("제목을 넣어 주세요.");
   if (url && !/^https:\/\//.test(url)) throw new Error("링크는 https:// 로 시작해야 해요.");
   const ch = await channelByName(NOTICE_CHANNEL);
   if (!ch) throw new Error(`${NOTICE_CHANNEL} 채널이 없어요.`);
-  const everyone = process.env.PROMO_PING === "true";
   const msg = await api("POST", `/channels/${ch.id}/messages`, {
     content: [everyone ? "@everyone" : "", url].filter(Boolean).join("\n") || undefined,
     embeds: [{ title, ...(url ? { url } : {}), color: 0xb39dff, description: text || undefined }],
@@ -208,7 +207,34 @@ async function promo() {
   console.log(`✅ ${NOTICE_CHANNEL} 에 올렸어요: ${title}`);
 }
 
-const COMMANDS = { remind, weekly, promo };
+async function promo() {
+  await postNotice({
+    title: (process.env.PROMO_TITLE ?? "").trim(),
+    url: (process.env.PROMO_URL ?? "").trim(),
+    text: (process.env.PROMO_TEXT ?? "").trim(),
+    everyone: process.env.PROMO_PING === "true",
+  });
+}
+
+async function scheduled() {
+  const list = JSON.parse(readFileSync(new URL("./promo-schedule.json", import.meta.url), "utf8"));
+  const kstToday = day(new Date(Date.now() + 9 * 3600000));
+  const due = list.filter((p) => p.date === kstToday);
+  if (!due.length) return console.log(`ℹ️ ${kstToday} 에 올릴 예약 공지가 없어요.`);
+  const ops = await channelByName(OPS_CHANNEL);
+  const done = new Set(ops ? (await readMarks(ops)).filter((m) => m.kind === "promo").map((m) => m.raw) : []);
+  for (const p of due) {
+    const key = `${p.date} ${p.url}`;
+    if (done.has(key)) {
+      console.log(`ℹ️ 이미 올렸어요: ${p.title}`);
+      continue;
+    }
+    await postNotice(p);
+    await logOps(`📣 예약 공지: ${p.title}`, `#promo ${key}`);
+  }
+}
+
+const COMMANDS = { remind, weekly, promo, scheduled };
 
 if (process.argv[1]?.endsWith("ops.mjs")) {
   const cmd = COMMANDS[process.argv[2]];
